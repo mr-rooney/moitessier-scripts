@@ -1,0 +1,118 @@
+#!/bin/bash
+#
+# This script is used to update the firmware of the nav.HAT microcontroller.
+# The latest firmware will be loaded automatically form an online repository.
+# 
+# Ensure that you have the I2C module and the flashing tool compiled (see 
+# https://github.com/mr-rooney/nav.HAT for further information). You might
+# need to change the paths below.
+#
+# Usage: bash fw_update_navHAT
+
+flasher=./stm32flash                                        # STM32 flasher (path/file name)
+i2cDriver=i2c-gpio-param.ko                                 # I2C bit-banged driver module
+repo=https://github.com/mr-rooney/nav.HAT-firmware.git      # repository holding the latest HAT firmware
+fwPath=fw                                                   # the path to store the firmware
+fwFile=$fwPath/application.binary                           # path + file name of the firmware
+
+unload()
+{
+    echo "INFO: Unloading $1."
+	rmmod $1
+}
+
+
+if [ "$EUID" -ne 0 ]
+then 
+    echo "ERROR: You must run this script with root privileges."
+    exit
+fi
+
+if [ ! -e $flasher ]
+then
+    echo "ERROR: The flasher $flasher is missing."
+    exit 1
+fi
+
+if [ ! -e $i2cDriver ]
+then
+    echo "ERROR: The I2C driver $i2cDriver is missing."
+    exit 1
+fi
+
+echo "INFO: Loading latest firmware binary form $repo."
+if [ -e $fwFile ]
+then
+    echo "WARNING: The firmware file $fwFile already exists."
+    
+    while true
+	do
+		read -r -p "Overwrite? [y/n]" answer
+		if ([ "$answer" != "y" ] && [ "$answer" != "n" ])
+		then
+			echo "Wrong entry... Try again."
+		else
+			if [ "$answer" = "n" ]
+			then
+				exit 1
+			elif [ "$answer" = "y" ]
+			then
+			    rm -r $fwFile
+			    rm -r $fwPath
+				break
+			fi
+		fi
+	done
+fi
+
+git clone $repo fw
+if [ $? -ne 0 ]
+then
+    echo "ERROR: Flashing firmware failed."
+    exit 1
+fi   
+
+if [ ! -e $fwFile ]
+then
+    echo "ERROR: The firmware file $fwFile is missing."
+    exit 1
+fi
+
+echo "INFO: Loading driver $i2cDriver."
+insmod $i2cDriver
+if [ $? -ne 0 ]
+then
+    echo "ERROR: Could not load $i2cDriver."
+    exit 1
+fi   
+
+echo "INFO: Creating I2C bus."
+echo 5 2 3 2 100 > /sys/class/i2c-gpio/add_bus
+if [ $? -ne 0 ]
+then
+    echo "ERROR: Could not create I2C bus."
+    unload $i2cDriver
+    exit 1
+fi    
+
+echo "INFO: Flashing firmware."
+$flasher -R -i 17,-18,18:-17,18,-18,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-5
+if [ $? -ne 0 ]
+then
+    echo "ERROR: Flashing firmware failed."
+    unload $i2cDriver
+    exit 1
+fi   
+
+echo 
+echo "**************************************************************************************"
+echo "*                                                                                    *"
+echo "* FIRMWARE UPDATE SUCCESSFULL!!!                                                     *"
+echo "*                                                                                    *"
+echo "* Shutting down system. YOU NEED TO UNPLUG AND REPLUG THE POWER SUPPLY AFTERWARDS!!! *"
+echo "*                                                                                    *"
+echo "**************************************************************************************"
+echo 
+shutdown now
+
+exit 0
