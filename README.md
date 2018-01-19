@@ -2,6 +2,7 @@ Scripts
 =======
 
 These scripts are part of the nav.HAT project.
+https://github.com/mr-rooney/nav.HAT
 
 
 fw_update_navHAT

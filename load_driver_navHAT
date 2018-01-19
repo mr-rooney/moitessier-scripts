@@ -9,7 +9,7 @@
 # Description:       
 ### END INIT INFO
 
-# You need to copy load_driver.sh to /etc/init.d before adding the service
+# You need to copy load_driver_navHAT.sh to /etc/init.d before adding the service
 # Add service: sudo update-rc.d -f load_driver_navHAT defaults
 # Remove service: sudo update-rc.d -f load_driver_navHAT remove
 #
