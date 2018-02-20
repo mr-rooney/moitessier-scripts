@@ -9,9 +9,11 @@
 #
 # Usage: ./fw_update_navHAT -h
 
-navHatDriver=naviDev                                        # the name of the nav.HAT driver module
+navHatDriverName=naviDev                                    # the name of the nav.HAT driver module
+navHatDriverPath=/home/pi/naviDev/naviDev.ko                # the path of the nav.HAT driver module
 flasher=./stm32flash                                        # STM32 flasher (path/file name)
-i2cDriver=i2c-gpio-param.ko                                 # I2C bit-banged driver module
+i2cDriverName=i2c_gpio_param                                # I2C bit-banged driver module name    
+i2cDriverPath=i2c-gpio-param.ko                             # I2C bit-banged driver module path
 repo=https://github.com/mr-rooney/nav.HAT-firmware.git      # repository holding the latest HAT firmware
 fwPath=fw                                                   # the path to store the firmware
 fwFileRemote=$fwPath/application.binary                     # path + file name of the firmware, if loaded from the remote repository
@@ -33,6 +35,8 @@ help()
     echo "         The firmware will be located in \"${pwd}/${fwFileRemote}\"."
     echo "    -s : Specifies the firmware that should be used."
     echo "         This option requires the path + filename as parameter"
+    echo "    -f : Forces the Raspberry Pi to shutdown after firmware update. A shutdown + power cycle"
+    echo "         is required only for virgin nav.HATs without any firmware."
     echo
     echo "Note: Options -s and -r must not be applied at the same time!!"
     echo "******************************************************************************************"
@@ -54,14 +58,17 @@ pwd=$(pwd)
 
 rOption=0
 sOption=0
+fOption=0
 fwFile=""
 
 help
 
-while getopts 'rs:h' option
+while getopts 'rfs:h' option
 do
     case $option in
         r) rOption=1
+            ;;
+        f) fOption=1
             ;;
         s) sOption=1
            fwFile="$OPTARG"
@@ -154,28 +161,32 @@ echo "The firmware file \"${fwFile}\" is used for the update"
 echo "**************************************************************************************"
 echo 
 
-echo "INFO: Loading driver \"$i2cDriver\"."
-insmod $i2cDriver
+lsm=$(lsmod | grep $i2cDriverName)
 if [ $? -ne 0 ]
 then
-    error "Could not load \"$i2cDriver\"."
-    exit 1
-fi   
+    echo "INFO: Loading driver \"$i2cDriverPath\"."
+    insmod $i2cDriverPath
+    if [ $? -ne 0 ]
+    then
+        error "Could not load \"$i2cDriverPath\"."
+        exit 1
+    fi   
+fi
 
 echo "INFO: Creating I2C bus."
 echo 5 2 3 2 100 > /sys/class/i2c-gpio/add_bus
 if [ $? -ne 0 ]
 then
     error "Could not create I2C bus."
-    unload $i2cDriver
+    unload $i2cDriverName
     exit 1
 fi    
 
-lsm=$(lsmod | grep $navHatDriver)
+lsm=$(lsmod | grep $navHatDriverName)
 if [ $? -eq 0 ]
 then
-    echo "WARNING: Module \"$navHatDriver\" is loaded, we will unload to gain access to the required GPIO pins."
-    unload $navHatDriver
+    echo "WARNING: Module \"$navHatDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
+    unload $navHatDriverName
 fi 
 
 
@@ -184,7 +195,7 @@ $flasher -R -i 17,-18,18:-17,18,-18,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-5
 if [ $? -ne 0 ]
 then
     error "Flashing firmware failed."
-    unload $i2cDriver
+    unload $i2cDriverName
     exit 1
 fi   
 
@@ -193,10 +204,25 @@ echo "**************************************************************************
 echo "*                                                                                    *"
 echo "* FIRMWARE UPDATE SUCCESSFULL!!!                                                     *"
 echo "*                                                                                    *"
+if [ $fOption == "1" ]
+then
 echo "* Shutting down system. YOU NEED TO UNPLUG AND REPLUG THE POWER SUPPLY AFTERWARDS!!! *"
 echo "*                                                                                    *"
+fi
 echo "**************************************************************************************"
 echo 
-shutdown now
+
+if [ $fOption == "1" ]
+then
+    shutdown now
+else
+    unload $i2cDriverName
+    insmod $navHatDriverPath
+    if [ $? -ne 0 ]
+    then
+        error "Could not load \"$navHatDriverPath\"."
+        exit 1
+    fi   
+fi
 
 exit 0
