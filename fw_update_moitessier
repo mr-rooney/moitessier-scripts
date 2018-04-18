@@ -1,19 +1,24 @@
 #!/bin/bash
 #
-# This script is used to update the firmware of the nav.HAT microcontroller.
+# This script is used to update the firmware of the Moitessier HAT microcontroller.
 # The latest firmware will be loaded automatically form an online repository.
 # 
 # Ensure that you have the I2C module and the flashing tool compiled (see 
 # https://github.com/mr-rooney/nav.HAT for further information). You might
 # need to change the paths below.
 #
-# Usage: ./fw_update_navHAT -h
+# Usage: ./fw_update_moitessier -h
 
-navHatDriverName=naviDev                                    # the name of the nav.HAT driver module
-navHatDriverPath=/home/pi/naviDev/naviDev.ko                # the path of the nav.HAT driver module
+moitessierDriverName=moitessier                             # the name of the Moitessier HAT driver module
+moitessierDriverPath=moitessier.ko                          # the path of the Moitessier HAT driver module
 flasher=./stm32flash                                        # STM32 flasher (path/file name)
 i2cDriverName=i2c_gpio_param                                # I2C bit-banged driver module name    
 i2cDriverPath=i2c-gpio-param.ko                             # I2C bit-banged driver module path
+i2cDeviceNr=5                                               # the device number that should be assigned to the GPIO bit-banged bus
+i2cSdaPinNumber=2                                           # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
+                                                            # Raspberry Pi, use pin 2.
+i2cSclPinNumber=3                                           # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
+                                                            # Raspberry Pi, use pin 3.                                                            
 repo=https://github.com/mr-rooney/nav.HAT-firmware.git      # repository holding the latest HAT firmware
 fwPath=fw                                                   # the path to store the firmware
 fwFileRemote=$fwPath/application.binary                     # path + file name of the firmware, if loaded from the remote repository
@@ -28,7 +33,7 @@ help()
 {
     echo
     echo "******************************************************************************************"
-    echo "This script is used to flash the STM32 microcontroller on the nav.HAT."
+    echo "This script is used to flash the STM32 microcontroller on the Moitessier HAT."
     echo       
     echo "One of the following options can be applied:"
     echo "    -r : Will load the latest firmware release from the remote repository $repo."
@@ -36,7 +41,7 @@ help()
     echo "    -s : Specifies the firmware that should be used."
     echo "         This option requires the path + filename as parameter"
     echo "    -f : Forces the Raspberry Pi to shutdown after firmware update. A shutdown + power cycle"
-    echo "         is required only for virgin nav.HATs without any firmware."
+    echo "         is required only for virgin Moitessier HATs without any firmware."
     echo
     echo "Note: Options -s and -r must not be applied at the same time!!"
     echo "******************************************************************************************"
@@ -162,36 +167,88 @@ echo "**************************************************************************
 echo 
 
 lsm=$(lsmod | grep $i2cDriverName)
-if [ $? -ne 0 ]
+if [ $? -eq 0 ]
 then
-    echo "INFO: Loading driver \"$i2cDriverPath\"."
-    insmod $i2cDriverPath
-    if [ $? -ne 0 ]
-    then
-        error "Could not load \"$i2cDriverPath\"."
-        exit 1
-    fi   
+    echo "WARNING: Module \"$i2cDriverName\" is loaded, we will unload and reload afterwards."
+    unload $i2cDriverName
 fi
 
+# keep track about current i2c devices
+i2cDevicesBeforeLoad=$(ls /sys/class/i2c-dev)
+
+echo "INFO: Loading driver \"$i2cDriverPath\"."
+insmod $i2cDriverPath
+if [ $? -ne 0 ]
+then
+    error "Could not load \"$i2cDriverPath\"."
+    exit 1
+fi
+
+# we've loaded the bit-banged driver, so the i2c device list might have been changed
+i2cDevicesAfterLoad=$(ls /sys/class/i2c-dev)
+
+# convert the strings holding the i2c devices to an array, so we can process the individual devices
+i2cDevicesBeforeLoadList=($(echo $i2cDevicesBeforeLoad | tr " " "\n"))
+i2cDevicesAfterLoadList=($(echo $i2cDevicesAfterLoad | tr " " "\n"))
+
+# create an array, that holds the differences --> will hold the i2c devices that were added due to bit-banged driver loading
+i2cDevicesToDeleteList=()
+for i in "${i2cDevicesAfterLoadList[@]}"; do
+     skip=
+     for j in "${i2cDevicesBeforeLoadList[@]}"; do
+         [[ $i == $j ]] && { skip=1; break; }
+     done
+     [[ -n $skip ]] || i2cDevicesToDeleteList+=("$i")
+done
+declare -p i2cDevicesToDeleteList
+
+# remove the devices, so we can cleanly add them afterwards
+for i2cDev in "${i2cDevicesToDeleteList[@]}"
+do
+    echo "INFO: Deleting I2C device ${i2cDev}."
+    echo ${i2cDev##*-} > /sys/class/i2c-gpio/remove_bus
+    if [ $? -ne 0 ]
+    then
+        error "Could not delete I2C device ${i2cDev}."
+        exit 1
+    fi
+done        
+
+#if [ -e "/sys/class/i2c-dev/i2c-${i2cDeviceNr}" ]
+#then
+#    echo "INFO: Deleting I2C device."
+#    echo ${i2cDeviceNr} > /sys/class/i2c-gpio/remove_bus
+#fi
+
 echo "INFO: Creating I2C bus."
-echo 5 2 3 2 100 > /sys/class/i2c-gpio/add_bus
+echo ${i2cDeviceNr} ${i2cSdaPinNumber} ${i2cSclPinNumber} 2 100 > /sys/class/i2c-gpio/add_bus
 if [ $? -ne 0 ]
 then
     error "Could not create I2C bus."
     unload $i2cDriverName
     exit 1
-fi    
+fi  
 
-lsm=$(lsmod | grep $navHatDriverName)
+# Check if OpenPlotter, and especially kplex, is running. If running, we need to stop it, otherwise loading the
+# driver for the Moitessier HAT fails as resource is busy.
+kplex=kplex
+pid=$(pidof ${kplex})
 if [ $? -eq 0 ]
 then
-    echo "WARNING: Module \"$navHatDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
-    unload $navHatDriverName
+    echo "INFO: Killing process ${kplex}."
+    pkill ${kplex}
+fi  
+
+lsm=$(lsmod | grep $moitessierDriverName)
+if [ $? -eq 0 ]
+then
+    echo "WARNING: Module \"$moitessierDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
+    unload $moitessierDriverName
 fi 
 
 
 echo "INFO: Flashing firmware."
-$flasher -R -i 17,-18,18:-17,18,-18,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-5
+$flasher -R -i 17,-18,18:-17,18,-18,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-${i2cDeviceNr}
 if [ $? -ne 0 ]
 then
     error "Flashing firmware failed."
@@ -214,13 +271,14 @@ echo
 
 if [ $fOption == "1" ]
 then
+    sleep 4
     shutdown now
 else
     unload $i2cDriverName
-    insmod $navHatDriverPath
+    insmod $moitessierDriverPath
     if [ $? -ne 0 ]
     then
-        error "Could not load \"$navHatDriverPath\"."
+        error "Could not load \"$moitessierDriverPath\"."
         exit 1
     fi   
 fi

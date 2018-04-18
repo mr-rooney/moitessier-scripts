@@ -1,27 +1,27 @@
 #!/bin/bash
 ### BEGIN INIT INFO
-# Provides:          Load nav.HAT driver
+# Provides:          Load Moitessier HAT driver
 # Required-Start:    $all
 # Required-Stop:     $all
 # Default-Start:     2 3 4 5
 # Default-Stop:      0 1 6
-# Short-Description: Loads the nav.HAT driver during booting.
+# Short-Description: Loads the Moitessier HAT driver during booting.
 # Description:       
 ### END INIT INFO
 
-# You need to copy load_driver_navHAT.sh to /etc/init.d before adding the service
-# Add service: sudo update-rc.d -f load_driver_navHAT defaults
-# Remove service: sudo update-rc.d -f load_driver_navHAT remove
+# You need to copy load_driver_moitessier.sh to /etc/init.d before adding the service
+# Add service: sudo update-rc.d -f load_driver_moitessier defaults
+# Remove service: sudo update-rc.d -f load_driver_moitessier remove
 #
 # Error and info messages will be written to the kernel ring buffer.
 # sys> dmesg
 
 
 # You might need to change the path to the driver
-driverPath=/home/pi/naviDev.ko
+driverPath=/home/pi/moitessier/modules/moitessier.ko
 
 
-ttyDev=/dev/naviDev.tty
+ttyDev=/dev/moitessier.tty
 
 start() {
     echo "Loading $driverPath" > /dev/kmsg
