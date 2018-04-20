@@ -2,7 +2,7 @@ Scripts
 =======
 
 These scripts are part of the Moitessier HAT project.
-https://github.com/mr-rooney/nav.HAT
+https://github.com/mr-rooney/moitessier
 
 
 fw_update_moitessier
