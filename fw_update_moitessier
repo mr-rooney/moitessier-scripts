@@ -4,7 +4,7 @@
 # The latest firmware will be loaded automatically form an online repository.
 # 
 # Ensure that you have the I2C module and the flashing tool compiled (see 
-# https://github.com/mr-rooney/nav.HAT for further information). You might
+# https://github.com/mr-rooney/moitessier for further information). You might
 # need to change the paths below.
 #
 # Usage: ./fw_update_moitessier -h
@@ -244,6 +244,11 @@ if [ $? -eq 0 ]
 then
     echo "WARNING: Module \"$moitessierDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
     unload $moitessierDriverName
+    if [ $? -ne 0 ]
+    then
+        error "Could not unload \"$moitessierDriverName\""
+        exit 1
+    fi  
 fi 
 
 

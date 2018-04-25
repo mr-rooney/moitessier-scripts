@@ -20,10 +20,25 @@
 # You might need to change the path to the driver
 driverPath=/home/pi/moitessier/modules/moitessier.ko
 
-
+# The device file used for the TTY interface
 ttyDev=/dev/moitessier.tty
 
+# Path to device tree related information
+hatDevTree=/proc/device-tree/soc/spi@7e204000/moitessier@0/name
+
 start() {
+    hatName=$(cat ${hatDevTree})
+    if [ $? -ne 0 ]
+    then
+        echo "INFO: Moitessier HAT not available" > /dev/kmsg
+        exit 1
+    fi
+    
+    if [[ $hatName != *"moitessier"* ]]; then
+        echo "INFO: Moitessier HAT not available" > /dev/kmsg
+        exit 1
+    fi
+   
     echo "Loading $driverPath" > /dev/kmsg
     insmod $driverPath
     if [ $? -ne 0 ]
@@ -31,11 +46,23 @@ start() {
         echo "ERROR: Could not load $driverPath." > /dev/kmsg
         exit 1
     fi
+    # we need to sleep a while otherwise changing owner and access mode fails.
+    sleep 3
     chown pi:pi $ttyDev
     if [ $? -ne 0 ]
     then
         echo "ERROR: Could not set owner for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
         exit 1
+    else
+        echo "Setting owner for $ttyDev." > /dev/kmsg
+    fi
+    chmod 666 $ttyDev
+    if [ $? -ne 0 ]
+    then
+        echo "ERROR: Could not set access mode for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
+        exit 1
+    else
+        echo "Setting access mode for $ttyDev." > /dev/kmsg
     fi
 }
 stop() {
