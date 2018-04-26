@@ -22,6 +22,7 @@ i2cSclPinNumber=3                                           # The GPIO pin numbe
 repo=https://github.com/mr-rooney/nav.HAT-firmware.git      # repository holding the latest HAT firmware
 fwPath=fw                                                   # the path to store the firmware
 fwFileRemote=$fwPath/application.binary                     # path + file name of the firmware, if loaded from the remote repository
+blackList=fw_update_moitessier_black_list.txt               # file that holds the processes/programms that need to be killed before the update can be executed
 
 unload()
 {
@@ -231,13 +232,22 @@ fi
 
 # Check if OpenPlotter, and especially kplex, is running. If running, we need to stop it, otherwise loading the
 # driver for the Moitessier HAT fails as resource is busy.
-kplex=kplex
-pid=$(pidof ${kplex})
-if [ $? -eq 0 ]
-then
-    echo "INFO: Killing process ${kplex}."
-    pkill ${kplex}
-fi  
+# The processes/programms to kill are specified in the black list file
+echo "INFO: Terminating running processes..."
+while IFS='' read -r line || [[ -n "$line" ]]; do
+    toKill="$line"
+    # we need to replace carriage return and line feed
+    toKill=$(echo ${toKill} | tr -d '\n','\r')
+    
+    pid=$(pidof ${toKill})
+    if [ $? -eq 0 ]
+    then
+        echo "INFO: Killing process ${toKill}."
+        pkill ${toKill}
+    else
+        echo "INFO: ${toKill} not running."
+    fi
+done < "$blackList"
 
 lsm=$(lsmod | grep $moitessierDriverName)
 if [ $? -eq 0 ]
