@@ -9,20 +9,20 @@
 #
 # Usage: ./fw_update_moitessier -h
 
-moitessierDriverName=moitessier                             # the name of the Moitessier HAT driver module
-moitessierDriverPath=moitessier.ko                          # the path of the Moitessier HAT driver module
-flasher=./stm32flash                                        # STM32 flasher (path/file name)
-i2cDriverName=i2c_gpio_param                                # I2C bit-banged driver module name    
-i2cDriverPath=i2c-gpio-param.ko                             # I2C bit-banged driver module path
-i2cDeviceNr=5                                               # the device number that should be assigned to the GPIO bit-banged bus
-i2cSdaPinNumber=2                                           # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
-                                                            # Raspberry Pi, use pin 2.
-i2cSclPinNumber=3                                           # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
-                                                            # Raspberry Pi, use pin 3.                                                            
-repo=https://github.com/mr-rooney/nav.HAT-firmware.git      # repository holding the latest HAT firmware
-fwPath=fw                                                   # the path to store the firmware
-fwFileRemote=$fwPath/application.binary                     # path + file name of the firmware, if loaded from the remote repository
-blackList=fw_update_moitessier_black_list.txt               # file that holds the processes/programms that need to be killed before the update can be executed
+moitessierDriverName=moitessier                                 # the name of the Moitessier HAT driver module
+moitessierDriverPath=moitessier.ko                              # the path of the Moitessier HAT driver module
+flasher=./stm32flash                                            # STM32 flasher (path/file name)
+i2cDriverName=i2c_gpio_param                                    # I2C bit-banged driver module name    
+i2cDriverPath=i2c-gpio-param.ko                                 # I2C bit-banged driver module path
+i2cDeviceNr=5                                                   # the device number that should be assigned to the GPIO bit-banged bus
+i2cSdaPinNumber=2                                               # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
+                                                                # Raspberry Pi, use pin 2.
+i2cSclPinNumber=3                                               # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
+                                                                # Raspberry Pi, use pin 3.                                                            
+repo=https://github.com/mr-rooney/moitessier-firmware.git       # repository holding the latest HAT firmware
+fwPath=fw                                                       # the path to store the firmware
+fwFileRemote=$fwPath/application.binary                         # path + file name of the firmware, if loaded from the remote repository
+blackList=fw_update_moitessier_black_list.txt                   # file that holds the processes/programms that need to be killed before the update can be executed
 
 unload()
 {
