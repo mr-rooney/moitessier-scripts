@@ -261,6 +261,16 @@ then
     fi  
 fi 
 
+# delay
+secondsElapsed=0
+startTimestamp=$(date +%s)
+while [ $secondsElapsed -lt 4 ]
+do
+    printf "."
+    sleep 0.2
+    currentTimestamp=$(date +%s)
+    secondsElapsed=$((currentTimestamp-startTimestamp))
+done
 
 echo "INFO: Flashing firmware."
 $flasher -R -i 17,-18,18:-17,18,-18,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-${i2cDeviceNr}
