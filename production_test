@@ -1,0 +1,324 @@
+#!/bin/bash
+#
+# This script is used to update the firmware of the Moitessier HAT microcontroller.
+# The latest firmware will be loaded automatically form an online repository.
+# 
+# Ensure that you have the I2C module and the flashing tool compiled (see 
+# https://github.com/mr-rooney/moitessier for further information). You might
+# need to change the paths below.
+#
+# Usage: ./fw_update_moitessier -h
+
+flasher=../flasher/fw_update_moitessier
+
+eepromFlasher=../device_tree/eeprom_update_moitessier           # the path to the EEPROM update script (relative path)
+sensorScript=../app/sensors/check_functionality                 # the path to the script used to check the sensor functionality (relative path)
+overlayPath=/boot/overlays                                      # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
+configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
+moitessierDeviceTree=../device_tree/moitessier.dtbo             # the compiled device tree, this will be used as overlay (relative path)
+i2cDriverName=i2c_gpio_param                                    # I2C bit-banged driver module name    
+i2cDriverPath=../flasher/i2c-gpio-param.ko                      # I2C bit-banged driver module path (relative path)
+i2cDeviceNr=5                                                   # the device number that should be assigned to the GPIO bit-banged bus
+i2cSdaPinNumber=2                                               # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
+                                                                # Raspberry Pi, use pin 2.
+i2cSclPinNumber=3                                               # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
+                                                                # Raspberry Pi, use pin 3.
+device=/dev/moitessier.spi                                      # the device file to read the Moitessier HAT data                                                           
+powerPinNumber=21                                               # The GPIO pin used to power cycle the board. This pin is only used for the production test adapter.
+sensorIterations=1
+database=/home/pi/Desktop/moitessier_db.txt
+moitessierCtrl=../app/moitessier_ctrl/moitessier_ctrl
+deviceCtrl=/dev/moitessier.ctrl
+
+dtparamValid=0
+dtoverlayValid=0
+
+bus=/dev/i2c-${i2cDeviceNr}    
+
+pwd="`dirname \"$0\"`"
+
+unload()
+{
+    echo "INFO: Unloading \"$1\"."
+	rmmod $1
+}
+
+help()
+{
+    echo
+    echo "******************************************************************************************"
+    echo "This script is used to test the Moitessier HAT."
+    echo       
+    echo "Available options:"
+    echo "    -k : If set the device tree overlay will be kept."
+    echo "    -s : If set the board will shutdown afterwards."
+    echo "    -r : If set the board will reboot afterwards."
+    echo "******************************************************************************************"
+    echo
+}
+
+error()
+{
+    echo
+    echo "******************************************************************************************"
+    echo "ERROR occured!!"
+    echo
+    echo $1
+    echo "******************************************************************************************"
+    echo
+}
+
+info()
+{
+    echo
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo
+}
+
+help
+
+nOption="-n"
+kOption=
+sOption=0
+rOption=0
+
+while getopts 'kshr' option
+do
+    case $option in
+        k) kOption="-k"
+            ;;
+        s) sOption=1
+            ;;
+        r) rOption=1
+            ;;
+        h) exit 0
+            ;;
+        \?) echo
+            error "Invalid option."
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$EUID" -ne 0 ]
+then 
+    error "You must run this script with root privileges."
+    exit
+fi
+
+if [ $rOption == "1" -a $sOption == "1" ]
+then
+    error "Option -r and -s must not be applied at the same time."
+    exit 1
+fi
+
+# check if the relevant parameters are set in the configuration file to load the device tree
+while IFS='' read -r line || [[ -n "$line" ]]; do
+    if [ "$line" = "dtparam=i2c_vc=on" ]
+    then
+        dtparamValid=1
+    fi
+    if [ "$line" = "dtoverlay=moitessier" ]
+    then
+        dtoverlayValid=1
+    fi
+done < "$configFile"
+
+if [ $dtparamValid == "0" ]
+then    
+    sh -c "echo 'dtparam=i2c_vc=on' >> $configFile"
+fi
+    
+if [ $dtoverlayValid == "0" ]
+then    
+    sh -c "echo 'dtoverlay=moitessier' >> $configFile"
+fi
+
+cp "${pwd}/${moitessierDeviceTree}" ${overlayPath}
+if [ $? -ne 0 ]
+then
+    error "Copying device tree \"${pwd}/${moitessierDeviceTree}\" to \"${overlayPath}\" failed."
+    exit 1
+fi
+
+# we need to reboot the Raspberry Pi to apply the changes in the configuration
+if [ $dtparamValid == "0" -o $dtoverlayValid == "0" ] 
+then
+    info "${configFile} has been changed. System will reboot. You need to call this script afterwards again."
+    sleep 4
+    reboot
+fi
+
+
+lsm=$(lsmod | grep $i2cDriverName)
+if [ $? -eq 0 ]
+then
+    echo "WARNING: Module \"$i2cDriverName\" is loaded, we will unload and reload afterwards."
+    unload $i2cDriverName
+fi
+
+# keep track about current i2c devices
+i2cDevicesBeforeLoad=$(ls /sys/class/i2c-dev)
+
+echo "INFO: Loading driver \"${pwd}/$i2cDriverPath\"."
+insmod "${pwd}/$i2cDriverPath" busid=${i2cDeviceNr} sda=${i2cSdaPinNumber} scl=${i2cSclPinNumber}
+if [ $? -ne 0 ]
+then
+    error "Could not load \"${pwd}/$i2cDriverPath\"."
+    exit 1
+fi
+
+# check the sensors
+"${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations}
+if [ $? -ne 0 ]
+then
+    error "Checking sensors failed. This might be okay, if one of the sensors is not assembled on the board."
+    sleep 3
+fi
+
+
+# write the firmware of the microcontroller
+dir="`dirname \"${pwd}/${flasher}\"`"
+"${pwd}/${flasher}" -s "${dir}/application.binary"
+if [ $? -ne 0 ]
+then
+    error "Writing firmware failed"
+    exit 1
+fi
+
+info "power cycling Moitessier HAT"
+if [ -d "/sys/class/gpio/gpio${powerPinNumber}" ]
+then
+    echo ${powerPinNumber} > /sys/class/gpio/unexport
+fi    
+echo ${powerPinNumber} > /sys/class/gpio/export
+if [ $? -ne 0 ]
+then
+    error "Exporting pin gpio${powerPinNumber} failed"
+    exit 1
+fi
+echo "out" > /sys/class/gpio/gpio${powerPinNumber}/direction
+echo 0 > /sys/class/gpio/gpio${powerPinNumber}/value
+sleep 0.2
+echo 1 > /sys/class/gpio/gpio${powerPinNumber}/value
+sleep 1
+echo 0 > /sys/class/gpio/gpio${powerPinNumber}/value
+sleep 2
+
+# write the EEPROM
+"${pwd}/${eepromFlasher}" ${nOption} ${kOption}
+if [ $? -ne 0 ]
+then
+    error "Writing EEPROM failed"
+    exit 1
+fi
+
+# check AIS and GNSS
+IFS=$'\r\n' GLOBIGNORE='*' command eval  'dat=($(head -n 60 ${device}))'
+printf '%s\n' "${dat[@]}"
+
+ais1Valid=0
+ais1Cnt=0
+ais2Valid=0
+ais2Cnt=0
+gnssValid=0
+gnssCnt=0
+for i in "${dat[@]}"
+do
+	echo $i
+	if [[ "$i" == *"!AIVDM,1,1,,A,"* ]]
+	then
+	    ais1Valid=1
+	    ((ais1Cnt++))
+	fi
+	
+	if [[ "$i" == *"!AIVDM,1,1,,B,"* ]]
+	then
+	    ais2Valid=1
+	    ((ais2Cnt++))
+	fi
+	
+	if [[ "$i" == *"GPRMC"* ]]
+	then
+	    gnssValid=1
+	    ((gnssCnt++))
+	fi
+	
+	if [[ "$i" == *"GNRMC"* ]]
+	then
+	    gnssValid=1
+	    ((gnssCnt++))
+	fi
+done
+
+if [ $gnssValid -eq 1 ] && [ $ais1Valid -eq 1 ] && [ $ais2Valid -eq 1 ]
+then
+    info "AIS/GNSS successfull - AIS1 = ${ais1Cnt}, AIS2 = ${ais2Cnt}, GNSS = ${gnssCnt}"
+else
+    error "AIS/GNSS failed"
+    exit 1  
+fi
+
+if [ -e "${database}" ]
+then
+    info "creating database"
+    touch "${database}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not create database file ${database}"
+        exit 1
+    fi
+fi
+
+serial=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep serial)
+if [ $? -ne 0 ]
+then
+    error "Could not get serial number from device"
+    exit 1
+fi
+rng=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep rng)
+if [ $? -ne 0 ]
+then
+    error "Could not get rng from device"
+    exit 1
+fi
+
+appVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "app version")
+if [ $? -ne 0 ]
+then
+    error "Could not get app version"
+    exit 1
+fi
+
+timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)
+if [ $? -ne 0 ]
+then
+    error "Could not get current internet time"
+    exit 1
+fi
+
+dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}
+echo ${dbEntry} >> ${database}
+if [ $? -ne 0 ]
+then
+    error "Could not write database file ${database}"
+    exit 1
+fi
+
+sleep 2
+if [ ${sOption} -eq 1 ]
+then
+    info "shutting down system"
+    sleep 1
+    shutdown now
+fi    
+
+if [ ${rOption} -eq 1 ]
+then
+    info "rebooting system"
+    sleep 1
+    reboot
+fi   
+exit 0

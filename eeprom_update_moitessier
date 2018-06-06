@@ -5,16 +5,17 @@
 # Usage: sudo ./eeprom_update_moitesssier
 
 # script configuration
-configFile=/boot/config.txt                                 # the boot configuration file used by the Raspberry Pi
-overlayPath=/boot/overlays                                  # the path to the device tree overlay directory on the Raspberry Pi
+configFile=/boot/config.txt                                 # the boot configuration file used by the Raspberry Pi (absolute path)
+overlayPath=/boot/overlays                                  # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
 moitessierDriverName=moitessier                             # the name of the Moitessier HAT driver module
-moitessierDriverPath=${moitessierDriverName}.ko             # the path of the Moitessier HAT driver module
-moitessierCtrlApp=../app/moitessier_ctrl/moitessier_ctrl    # the application used to control the Moitessier HAT
-moitessierDevice=/dev/moitessier.ctrl                       # the device used to write control commands to the Moitessier HAT
-moitessierDeviceTreeImage=moitessier.eep                    # the EEPROM image to write
-moitessierDeviceTree=moitessier.dtbo                        # the compiled device tree, this will be used as overlay
+moitessierDriverPath=${moitessierDriverName}.ko             # the path of the Moitessier HAT driver module (relative path)
+moitessierCtrlApp=../app/moitessier_ctrl/moitessier_ctrl    # the application used to control the Moitessier HAT (relative path)
+moitessierDevice=/dev/moitessier.ctrl                       # the device used to write control commands to the Moitessier HAT (absolute path)
+moitessierDeviceTreeImage=moitessier.eep                    # the EEPROM image to write (relative path)
+moitessierDeviceTree=moitessier.dtbo                        # the compiled device tree, this will be used as overlay (relative path)
+dump=dump.eep
 
-
+dir="`dirname \"$0\"`"
 
 dtparamValid=0
 dtoverlayValid=0
@@ -45,6 +46,40 @@ info()
     echo
 }
 
+help()
+{
+    echo
+    echo "******************************************************************************************"
+    echo "This script is used to flash the EEPROM of the Moitessier HAT."
+    echo       
+    echo "Available options:"
+    echo "    -n : If set the board will not reboot afterwards."
+    echo "    -k : If set the device tree overlay will be kept."
+    echo "******************************************************************************************"
+    echo
+}
+
+help
+
+nOption=0
+kOption=0
+
+while getopts 'nkh' option
+do
+    case $option in
+        n) nOption=1
+            ;;
+        k) kOption=1
+            ;;
+        h) exit 0
+            ;;
+        \?) echo
+            error "Invalid option."
+            exit 1
+            ;;
+    esac
+done
+
 if [ "$EUID" -ne 0 ]
 then 
     error "You must run this script with root privileges."
@@ -73,10 +108,10 @@ then
     sh -c "echo 'dtoverlay=moitessier' >> $configFile"
 fi
 
-cp ${moitessierDeviceTree} ${overlayPath}
+cp "${dir}/${moitessierDeviceTree}" ${overlayPath}
 if [ $? -ne 0 ]
 then
-    error "Copying device tree \"${moitessierDeviceTree}\" to \"${overlayPath}\" failed."
+    error "Copying device tree \"${dir}/${moitessierDeviceTree}\" to \"${overlayPath}\" failed."
     exit 1
 fi
 
@@ -105,42 +140,88 @@ then
     unload $moitessierDriverName
 fi
 
-insmod $moitessierDriverPath
+insmod "${dir}/$moitessierDriverPath"
 if [ $? -ne 0 ]
 then
     error "Could not load \"$moitessierDriverPath\"."
     exit 1
 fi
 
-./${moitessierCtrlApp} ${moitessierDevice} 6 0
+"${dir}/${moitessierCtrlApp}" ${moitessierDevice} 6 0
 if [ $? -ne 0 ]
 then
     error "Could not disable EEPROM write protection."
     exit 1
 fi
 
-./eepflash.sh -w -f=${moitessierDeviceTreeImage} -t=24c32 -d=0 -a=50 --force
+"${dir}/eepflash.sh" -w -f="${dir}/${moitessierDeviceTreeImage}" -t=24c32 -d=0 -a=50 --force
 if [ $? -ne 0 ]
 then
     error "Could not write EEPROM image."
     exit 1
 fi
 
+if [ -e "${dir}/${dump}" ]
+then
+    echo "WARNING: The dump file \"${dir}/${dump}\" already exists. It will be deleted."
+    rm "${dir}/${dump}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not delete ${dir}/${dump}"
+        exit 1
+    fi
+fi
+
+"${dir}/eepflash.sh" -r -f="${dir}/${dump}" -t=24c32 -d=0 -a=50 --force
+if [ $? -ne 0 ]
+then
+    error "Could not read EEPROM image."
+    exit 1
+fi
+
+size=$(wc -c < "${dir}/${moitessierDeviceTreeImage}")
+cmp -n ${size} "${dir}/${moitessierDeviceTreeImage}" "${dir}/${dump}"
+if [ $? -ne 0 ]
+then
+    error "Verify failed."
+    exit 1
+fi
+
+rm "${dir}/${dump}"
+if [ $? -ne 0 ]
+then
+    error "Could not delete ${dir}/${dump}"
+    exit 1
+fi
 
 # if the EEPROM is written, we don't need to load the device tree from the overlay directory, as the relevant information
 # is directly loaded from the EEPROM
-sed -i '/dtoverlay=moitessier/d' ${configFile}
+if [ $kOption -eq 0 ]
+then
+    sed -i '/dtoverlay=moitessier/d' ${configFile}
+else
+    info "Device tree overlay not overwritten!!" 
+fi
 
 echo 
 echo "**************************************************************************************"
 echo "*                                                                                    *"
 echo "* EEPROM IMAGE WRITTEN SUCCESSFULLY!!!                                               *"
 echo "*                                                                                    *"
-echo "* Rebooting system...                                                                *"
-echo "*                                                                                    *"
+
+if [ $nOption -eq 0 ]
+then
+    echo "* Rebooting system...                                                                *"
+    echo "*                                                                                    *"    
+fi
+
 echo "**************************************************************************************"
 echo
 
-sleep 4
+if [ $nOption -eq 0 ]
+then
+    sleep 4
+    reboot 
+fi
 
-reboot 
+exit 0    
