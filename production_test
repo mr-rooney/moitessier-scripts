@@ -8,11 +8,16 @@
 # need to change the paths below.
 #
 # Usage: ./fw_update_moitessier -h
+#
+# Most common commands:
+#   sudo moitessier/scripts/production_test -k -s --ignore 2>&1 | tee ~/Desktop/production_test.logg
+#   sudo moitessier/scripts/production_test -k -x --ignore 2>&1 | tee ~/Desktop/production_test.logg
 
 flasher=../flasher/fw_update_moitessier
 
 eepromFlasher=../device_tree/eeprom_update_moitessier           # the path to the EEPROM update script (relative path)
 sensorScript=../app/sensors/check_functionality                 # the path to the script used to check the sensor functionality (relative path)
+sensorFile=../app/sensors/sensValues.txt                        # The file where the sensor readouts should be stored
 overlayPath=/boot/overlays                                      # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
 configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
 moitessierDeviceTree=../device_tree/moitessier.dtbo             # the compiled device tree, this will be used as overlay (relative path)
@@ -30,12 +35,25 @@ database=/home/pi/Desktop/moitessier_db.txt
 moitessierCtrl=../app/moitessier_ctrl/moitessier_ctrl
 deviceCtrl=/dev/moitessier.ctrl
 
+# Default values for sensor sanity check.
+temperature=35                                                  # temperature in °C       
+temperatureRange=15                                             # actual range is temperature +/- temperatureRange
+pressure=1000                                                   # pressure in mbar
+pressureRange=200                                               # actual range is pressure +/- pressureRange
+
+
 dtparamValid=0
 dtoverlayValid=0
 
 bus=/dev/i2c-${i2cDeviceNr}    
 
 pwd="`dirname \"$0\"`"
+
+# https://misc.flogisoft.com/bash/tip_colors_and_formatting
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_DEFAULT="\e[0m"
 
 unload()
 {
@@ -50,9 +68,13 @@ help()
     echo "This script is used to test the Moitessier HAT."
     echo       
     echo "Available options:"
-    echo "    -k : If set the device tree overlay will be kept."
-    echo "    -s : If set the board will shutdown afterwards."
-    echo "    -r : If set the board will reboot afterwards."
+    echo "    -k        : If set the device tree overlay will be kept."
+    echo "    -s        : If set the board will shutdown afterwards."
+    echo "    -r        : If set the board will reboot afterwards."
+    echo "    -x        : If set the board will not shutdown/reboot afterwards."
+    echo "    --ignore  : If set errors will be ignored and tests will be continued. This option should"
+    echo "                be set if you want to test all functions of the board and you do not want to"
+    echo "                abort at the first found error."
     echo "******************************************************************************************"
     echo
 }
@@ -61,9 +83,9 @@ error()
 {
     echo
     echo "******************************************************************************************"
-    echo "ERROR occured!!"
+    echo -e "${FORMAT_RED}ERROR occured!!${FORMAT_DEFAULT}"
     echo
-    echo $1
+    echo -e "${FORMAT_RED}${1}${FORMAT_DEFAULT}"
     echo "******************************************************************************************"
     echo
 }
@@ -77,14 +99,120 @@ info()
     echo
 }
 
+results()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "**************************************\e[1;45m TEST RESULTS ${FORMAT_DEFAULT}**************************************"
+    echo "******************************************************************************************"
+    echo
+    format=${FORMAT_RED}        
+    if [ "${systemFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${systemFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "SYSTEM            ${format}${systemFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${sensorsFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${sensorsFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "SENSORS           ${format}${sensorsFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${firmwareFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${firmwareFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "FIRMWARE          ${format}${firmwareFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${eepromFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${eepromFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "EEPROM            ${format}${eepromFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${gpioFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${gpioFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "GPIO              ${format}${gpioFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${receiverFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${receiverFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "RECEIVER          ${format}${receiverFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${microcontrollerFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${microcontrollerFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "MICROCONTROLLER   ${format}${microcontrollerFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${databaseFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${databaseFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "DATABASE          ${format}${databaseFailed}${FORMAT_DEFAULT}"
+    
+    echo "******************************************************************************************"
+    echo
+}
+
 help
 
 nOption="-n"
 kOption=
 sOption=0
 rOption=0
+xOption=0
+ignoreOption=0
 
-while getopts 'kshr' option
+NOT_TESTED="not tested"
+TEST_OK="ok"
+TEST_NOK="failed"
+
+sensorsFailed=${NOT_TESTED}
+firmwareFailed=${NOT_TESTED}
+eepromFailed=${NOT_TESTED}
+receiverFailed=${NOT_TESTED}
+microcontrollerFailed=${NOT_TESTED}
+databaseFailed=${NOT_TESTED}
+gpioFailed=${NOT_TESTED}
+systemFailed=${NOT_TESTED}
+
+while getopts "kshxr-:" option
 do
     case $option in
         k) kOption="-k"
@@ -95,6 +223,18 @@ do
             ;;
         h) exit 0
             ;;
+        x) xOption=1
+            ;;
+        -) case "${OPTARG}" in
+                ignore)
+                    ignoreOption=1
+                    ;;
+                *) echo
+                    error "Invalid option."
+                    exit 1
+                    ;;                    
+            esac
+            ;;            
         \?) echo
             error "Invalid option."
             exit 1
@@ -108,9 +248,11 @@ then
     exit
 fi
 
-if [ $rOption == "1" -a $sOption == "1" ]
+bootOption=$(expr $rOption + $sOption + $xOption)
+
+if [ $bootOption -gt 1 ]
 then
-    error "Option -r and -s must not be applied at the same time."
+    error "Option -r, -s and/or -n must not be applied at the same time."
     exit 1
 fi
 
@@ -140,7 +282,11 @@ cp "${pwd}/${moitessierDeviceTree}" ${overlayPath}
 if [ $? -ne 0 ]
 then
     error "Copying device tree \"${pwd}/${moitessierDeviceTree}\" to \"${overlayPath}\" failed."
+    systemFailed=${TEST_NOK}
+    results
     exit 1
+else
+    systemFailed=${TEST_OK}    
 fi
 
 # we need to reboot the Raspberry Pi to apply the changes in the configuration
@@ -167,17 +313,72 @@ insmod "${pwd}/$i2cDriverPath" busid=${i2cDeviceNr} sda=${i2cSdaPinNumber} scl=$
 if [ $? -ne 0 ]
 then
     error "Could not load \"${pwd}/$i2cDriverPath\"."
+    systemFailed=${TEST_NOK}
+    results
     exit 1
+else
+    systemFailed=${TEST_OK}
 fi
 
 # check the sensors
-"${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations}
+"${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations} --all -s -t ${temperature} -r ${temperatureRange} -p ${pressure} -n ${pressureRange}
 if [ $? -ne 0 ]
 then
     error "Checking sensors failed. This might be okay, if one of the sensors is not assembled on the board."
-    sleep 3
+    sensorsFailed=${TEST_NOK}
+    if [ $ignoreOption == "1" ]
+    then
+        sleep 3  
+    else
+        results
+        exit 1      
+    fi
+else
+    sensorsFailed=${TEST_OK}
 fi
 
+# check if the file exists where the sensor data has been written and parse the values
+if [ -e "${pwd}/${sensorFile}" ]
+then
+    sensValues=$(cat "${pwd}/${sensorFile}")
+    while IFS=';' read -ra ADDR; do
+        for i in "${ADDR[@]}"; do
+            param=$(echo $i | sed 's/:.*//')
+            val=$(echo $i | sed 's/.*://' | sed 's/;.*//')
+            
+            case "$param" in
+                "cpuTemp") cpuTemp=$val;;
+                "pressureTemp") pressureTemp=$val;;
+                "pressure") pressure=$val;;
+                "mpuTemp") mpuTemp=$val;;
+                "*") error "Found value in ${pwd}/${sensorFile} that cannot be processed"
+            esac
+        done
+    done <<< "$sensValues"
+    rm "${pwd}/${sensorFile}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not delete file ${pwd}/${sensorFile}"
+        sensorsFailed=${TEST_NOK}
+        if [ $ignoreOption == "1" ]
+        then
+            sleep 3  
+        else
+            results
+            exit 1      
+        fi
+    fi
+else    
+    error "File ${pwd}/${sensorFile} not found"
+    sensorsFailed=${TEST_NOK}
+    if [ $ignoreOption == "1" ]
+    then
+        sleep 3  
+    else
+        results
+        exit 1      
+    fi
+fi
 
 # write the firmware of the microcontroller
 dir="`dirname \"${pwd}/${flasher}\"`"
@@ -185,7 +386,11 @@ dir="`dirname \"${pwd}/${flasher}\"`"
 if [ $? -ne 0 ]
 then
     error "Writing firmware failed"
+    firmwareFailed=${TEST_NOK}
+    results
     exit 1
+else
+    firmwareFailed=${TEST_OK}
 fi
 
 info "power cycling Moitessier HAT"
@@ -197,7 +402,11 @@ echo ${powerPinNumber} > /sys/class/gpio/export
 if [ $? -ne 0 ]
 then
     error "Exporting pin gpio${powerPinNumber} failed"
+    gpioFailed=${TEST_NOK}
+    results
     exit 1
+else
+    gpioFailed=${TEST_OK}
 fi
 echo "out" > /sys/class/gpio/gpio${powerPinNumber}/direction
 echo 0 > /sys/class/gpio/gpio${powerPinNumber}/value
@@ -212,7 +421,11 @@ sleep 2
 if [ $? -ne 0 ]
 then
     error "Writing EEPROM failed"
+    eepromFailed=${TEST_NOK}
+    results
     exit 1
+else
+    eepromFailed=${TEST_OK}
 fi
 
 # check AIS and GNSS
@@ -256,56 +469,88 @@ done
 if [ $gnssValid -eq 1 ] && [ $ais1Valid -eq 1 ] && [ $ais2Valid -eq 1 ]
 then
     info "AIS/GNSS successfull - AIS1 = ${ais1Cnt}, AIS2 = ${ais2Cnt}, GNSS = ${gnssCnt}"
+    receiverFailed=${TEST_OK}
 else
     error "AIS/GNSS failed"
+    receiverFailed=${TEST_NOK}
+    results
     exit 1  
-fi
-
-if [ -e "${database}" ]
-then
-    info "creating database"
-    touch "${database}"
-    if [ $? -ne 0 ]
-    then
-        error "Could not create database file ${database}"
-        exit 1
-    fi
 fi
 
 serial=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep serial)
 if [ $? -ne 0 ]
 then
     error "Could not get serial number from device"
+    microcontrollerFailed=${TEST_NOK}
+    results
     exit 1
+else
+    microcontrollerFailed=${TEST_OK}
 fi
 rng=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep rng)
 if [ $? -ne 0 ]
 then
     error "Could not get rng from device"
+    microcontrollerFailed=${TEST_NOK}
+    results
     exit 1
+else
+    microcontrollerFailed=${TEST_OK}
 fi
 
 appVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "app version")
 if [ $? -ne 0 ]
 then
     error "Could not get app version"
+    microcontrollerFailed=${TEST_NOK}
+    results
     exit 1
+else
+    microcontrollerFailed=${TEST_OK}
 fi
 
 timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)
 if [ $? -ne 0 ]
 then
     error "Could not get current internet time"
+    results
     exit 1
 fi
 
-dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}
+if [ "$sensorsFailed" != "${TEST_OK}" -o "$firmwareFailed" != "${TEST_OK}" -o "$eepromFailed" != "${TEST_OK}" -o "$receiverFailed" != "${TEST_OK}" -o "$microcontrollerFailed" != "${TEST_OK}" -o "$gpioFailed" != "${TEST_OK}" -o "$systemFailed" != "${TEST_OK}" ]
+then
+    results
+    exit 1
+fi
+
+if [ ! -e "${database}" ]
+then
+    info "creating database"
+    touch "${database}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not create database file ${database}"
+        databaseFailed=${TEST_NOK}
+        results
+        exit 1
+    else
+        databaseFailed=${TEST_OK}
+    fi
+fi
+
+dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}
 echo ${dbEntry} >> ${database}
 if [ $? -ne 0 ]
 then
     error "Could not write database file ${database}"
+    databaseFailed=${TEST_NOK}
+    results
     exit 1
+else
+    databaseFailed=${TEST_OK}
 fi
+
+results
 
 sleep 2
 if [ ${sOption} -eq 1 ]
