@@ -509,6 +509,17 @@ else
     microcontrollerFailed=${TEST_OK}
 fi
 
+hwVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "hardware version")
+if [ $? -ne 0 ]
+then
+    error "Could not get hardware version"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+
 timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)
 if [ $? -ne 0 ]
 then
@@ -538,7 +549,7 @@ then
     fi
 fi
 
-dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}
+dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${hwVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}
 echo ${dbEntry} >> ${database}
 if [ $? -ne 0 ]
 then
