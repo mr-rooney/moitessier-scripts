@@ -13,8 +13,9 @@ moitessierDriverName=moitessier                                 # the name of th
 moitessierDriverPath=moitessier.ko                              # the path of the Moitessier HAT driver module (relative path)
 flasher=stm32flash                                              # STM32 flasher (path/file name) (relative path)
 configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
-i2cDeviceNr=5                                                   # The bit-banged I2C interface. This parameter must equal with the settings in the 
+i2cDeviceNr=3                                                   # The bit-banged I2C interface. This parameter must equal with the settings in the 
                                                                 # device tree overlay. SDA and SCL for this interface are specified in the overlay.
+                                                                # FIXME: currently the kernel 4.19 only supports I2C bus number 3.
 repo=https://github.com/mr-rooney/moitessier-firmware.git       # repository holding the latest HAT firmware
 fwPath=fw                                                       # the path to store the firmware
 fwFileRemote=$fwPath/application.binary                         # path + file name of the firmware, if loaded from the remote repository

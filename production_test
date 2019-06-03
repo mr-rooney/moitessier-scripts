@@ -21,8 +21,9 @@ sensorFile=../app/sensors/sensValues.txt                        # The file where
 overlayPath=/boot/overlays                                      # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
 configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
 moitessierDeviceTree=../device_tree/moitessier.dtbo             # the compiled device tree, this will be used as overlay (relative path)
-i2cDeviceNr=5                                                   # The bit banged I2C interface. This parameter must equal with the settings in the 
+i2cDeviceNr=3                                                   # The bit banged I2C interface. This parameter must equal with the settings in the 
                                                                 # device tree overlay. SDA and SCL for this interface are specified in the overlay.
+                                                                # FIXME: currently the kernel 4.19 only supports I2C bus number 3.
 device=/dev/moitessier.spi                                      # the device file to read the Moitessier HAT data                                                           
 powerPinNumber=21                                               # The GPIO pin used to power cycle the board. This pin is only used for the production test adapter.
 sensorIterations=1
