@@ -21,13 +21,8 @@ sensorFile=../app/sensors/sensValues.txt                        # The file where
 overlayPath=/boot/overlays                                      # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
 configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
 moitessierDeviceTree=../device_tree/moitessier.dtbo             # the compiled device tree, this will be used as overlay (relative path)
-i2cDriverName=i2c_gpio_param                                    # I2C bit-banged driver module name    
-i2cDriverPath=../flasher/i2c-gpio-param.ko                      # I2C bit-banged driver module path (relative path)
-i2cDeviceNr=5                                                   # the device number that should be assigned to the GPIO bit-banged bus
-i2cSdaPinNumber=2                                               # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
-                                                                # Raspberry Pi, use pin 2.
-i2cSclPinNumber=3                                               # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
-                                                                # Raspberry Pi, use pin 3.
+i2cDeviceNr=5                                                   # The bit banged I2C interface. This parameter must equal with the settings in the 
+                                                                # device tree overlay. SDA and SCL for this interface are specified in the overlay.
 device=/dev/moitessier.spi                                      # the device file to read the Moitessier HAT data                                                           
 powerPinNumber=21                                               # The GPIO pin used to power cycle the board. This pin is only used for the production test adapter.
 sensorIterations=1
@@ -42,8 +37,9 @@ pressure=1000                                                   # pressure in mb
 pressureRange=200                                               # actual range is pressure +/- pressureRange
 
 
-dtparamValid=0
-dtoverlayValid=0
+dtparamI2CValid=0
+dtoverlayMoitessierValid=0
+dtoverlayI2CgpioValid=0
 
 bus=/dev/i2c-${i2cDeviceNr}    
 
@@ -157,16 +153,6 @@ results()
     echo -e "GPIO              ${format}${gpioFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
-    if [ "${receiverFailed}" == "${TEST_OK}" ]
-    then        
-        format=${FORMAT_GREEN}
-    elif [ "${receiverFailed}" == "${NOT_TESTED}" ]
-    then
-        format=${FORMAT_YELLOW}
-    fi
-    echo -e "RECEIVER          ${format}${receiverFailed}${FORMAT_DEFAULT}"
-    
-    format=${FORMAT_RED}
     if [ "${microcontrollerFailed}" == "${TEST_OK}" ]
     then        
         format=${FORMAT_GREEN}
@@ -175,6 +161,16 @@ results()
         format=${FORMAT_YELLOW}
     fi
     echo -e "MICROCONTROLLER   ${format}${microcontrollerFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${receiverFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${receiverFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "RECEIVER          ${format}${receiverFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${databaseFailed}" == "${TEST_OK}" ]
@@ -260,22 +256,31 @@ fi
 while IFS='' read -r line || [[ -n "$line" ]]; do
     if [ "$line" = "dtparam=i2c_vc=on" ]
     then
-        dtparamValid=1
+        dtparamI2CValid=1
     fi
     if [ "$line" = "dtoverlay=moitessier" ]
     then
-        dtoverlayValid=1
+        dtoverlayMoitessierValid=1
+    fi
+    if [ "$line" = "dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=5" ]
+    then
+        dtoverlayI2CgpioValid=1
     fi
 done < "$configFile"
 
-if [ $dtparamValid == "0" ]
+if [ $dtparamI2CValid == "0" ]
 then    
     sh -c "echo 'dtparam=i2c_vc=on' >> $configFile"
 fi
     
-if [ $dtoverlayValid == "0" ]
+if [ $dtoverlayMoitessierValid == "0" ]
 then    
     sh -c "echo 'dtoverlay=moitessier' >> $configFile"
+fi
+
+if [ $dtoverlayI2CgpioValid == "0" ]
+then    
+    sh -c "echo 'dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=5' >> $configFile"
 fi
 
 cp "${pwd}/${moitessierDeviceTree}" ${overlayPath}
@@ -290,34 +295,11 @@ else
 fi
 
 # we need to reboot the Raspberry Pi to apply the changes in the configuration
-if [ $dtparamValid == "0" -o $dtoverlayValid == "0" ] 
+if [ $dtparamI2CValid == "0" -o $dtoverlayMoitessierValid == "0" -o $dtoverlayI2CgpioValid == "0" ] 
 then
     info "${configFile} has been changed. System will reboot. You need to call this script afterwards again."
     sleep 4
     reboot
-fi
-
-
-lsm=$(lsmod | grep $i2cDriverName)
-if [ $? -eq 0 ]
-then
-    echo "WARNING: Module \"$i2cDriverName\" is loaded, we will unload and reload afterwards."
-    unload $i2cDriverName
-fi
-
-# keep track about current i2c devices
-i2cDevicesBeforeLoad=$(ls /sys/class/i2c-dev)
-
-echo "INFO: Loading driver \"${pwd}/$i2cDriverPath\"."
-insmod "${pwd}/$i2cDriverPath" busid=${i2cDeviceNr} sda=${i2cSdaPinNumber} scl=${i2cSclPinNumber}
-if [ $? -ne 0 ]
-then
-    error "Could not load \"${pwd}/$i2cDriverPath\"."
-    systemFailed=${TEST_NOK}
-    results
-    exit 1
-else
-    systemFailed=${TEST_OK}
 fi
 
 # check the sensors
@@ -428,6 +410,50 @@ else
     eepromFailed=${TEST_OK}
 fi
 
+# check the microcontroller and read relevant information
+serial=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep serial)
+if [ $? -ne 0 ]
+then
+    error "Could not get serial number from device"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+rng=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep rng)
+if [ $? -ne 0 ]
+then
+    error "Could not get rng from device"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+
+appVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "app version")
+if [ $? -ne 0 ]
+then
+    error "Could not get app version"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+
+hwVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "hardware version")
+if [ $? -ne 0 ]
+then
+    error "Could not get hardware version"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+
 # check AIS and GNSS
 IFS=$'\r\n' GLOBIGNORE='*' command eval  'dat=($(head -n 60 ${device}))'
 printf '%s\n' "${dat[@]}"
@@ -475,49 +501,6 @@ else
     receiverFailed=${TEST_NOK}
     results
     exit 1  
-fi
-
-serial=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep serial)
-if [ $? -ne 0 ]
-then
-    error "Could not get serial number from device"
-    microcontrollerFailed=${TEST_NOK}
-    results
-    exit 1
-else
-    microcontrollerFailed=${TEST_OK}
-fi
-rng=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep rng)
-if [ $? -ne 0 ]
-then
-    error "Could not get rng from device"
-    microcontrollerFailed=${TEST_NOK}
-    results
-    exit 1
-else
-    microcontrollerFailed=${TEST_OK}
-fi
-
-appVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "app version")
-if [ $? -ne 0 ]
-then
-    error "Could not get app version"
-    microcontrollerFailed=${TEST_NOK}
-    results
-    exit 1
-else
-    microcontrollerFailed=${TEST_OK}
-fi
-
-hwVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "hardware version")
-if [ $? -ne 0 ]
-then
-    error "Could not get hardware version"
-    microcontrollerFailed=${TEST_NOK}
-    results
-    exit 1
-else
-    microcontrollerFailed=${TEST_OK}
 fi
 
 timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)

@@ -3,7 +3,7 @@
 # This script is used to update the firmware of the Moitessier HAT microcontroller.
 # The latest firmware will be loaded automatically form an online repository.
 # 
-# Ensure that you have the I2C module and the flashing tool compiled (see 
+# Ensure that you have the flashing tool compiled (see 
 # https://github.com/mr-rooney/moitessier for further information). You might
 # need to change the paths below.
 #
@@ -12,13 +12,9 @@
 moitessierDriverName=moitessier                                 # the name of the Moitessier HAT driver module
 moitessierDriverPath=moitessier.ko                              # the path of the Moitessier HAT driver module (relative path)
 flasher=stm32flash                                              # STM32 flasher (path/file name) (relative path)
-i2cDriverName=i2c_gpio_param                                    # I2C bit-banged driver module name    
-i2cDriverPath=i2c-gpio-param.ko                                 # I2C bit-banged driver module path (relative path)
-i2cDeviceNr=5                                                   # the device number that should be assigned to the GPIO bit-banged bus
-i2cSdaPinNumber=2                                               # The GPIO pin number that should be used as SDA. If using the default I2C bus on the
-                                                                # Raspberry Pi, use pin 2.
-i2cSclPinNumber=3                                               # The GPIO pin number that should be used as SCL. If using the default I2C bus on the
-                                                                # Raspberry Pi, use pin 3.                                                            
+configFile=/boot/config.txt                                     # the boot configuration file used by the Raspberry Pi (absolute path)
+i2cDeviceNr=5                                                   # The bit-banged I2C interface. This parameter must equal with the settings in the 
+                                                                # device tree overlay. SDA and SCL for this interface are specified in the overlay.
 repo=https://github.com/mr-rooney/moitessier-firmware.git       # repository holding the latest HAT firmware
 fwPath=fw                                                       # the path to store the firmware
 fwFileRemote=$fwPath/application.binary                         # path + file name of the firmware, if loaded from the remote repository
@@ -27,6 +23,15 @@ retries=5                                                       # number of retr
 
 # calling path
 dir="`dirname \"$0\"`"
+
+
+dtoverlayI2CgpioValid=0
+
+# https://misc.flogisoft.com/bash/tip_colors_and_formatting
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_DEFAULT="\e[0m"
 
 unload()
 {
@@ -116,10 +121,25 @@ then
     exit 1
 fi
 
-if [ ! -e $i2cDriver ]
+# check if the relevant parameters are set in the configuration file to load the device tree
+while IFS='' read -r line || [[ -n "$line" ]]; do
+    if [ "$line" = "dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=${i2cDeviceNr}" ]
+    then
+        dtoverlayI2CgpioValid=1
+    fi
+done < "$configFile"
+
+if [ $dtoverlayI2CgpioValid == "0" ]
+then    
+    sh -c "echo 'dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=${i2cDeviceNr}' >> $configFile"
+fi
+
+# we need to reboot the Raspberry Pi to apply the changes in the configuration
+if [ $dtoverlayI2CgpioValid == "0" ] 
 then
-    error "The I2C driver \"$i2cDriver\" is missing."
-    exit 1
+    echo -e "${FORMAT_RED}${configFile} has been changed. System will reboot. You need to call this script afterwards again.${FORMAT_DEFAULT}"
+    sleep 10
+    reboot
 fi
 
 if [ $rOption -eq 1 ]
@@ -174,70 +194,6 @@ echo
 for((ry = 0; ry < $retries; ry++))
 do
     errorOccured=false
-    
-    lsm=$(lsmod | grep $i2cDriverName)
-    if [ $? -eq 0 ]
-    then
-        echo "WARNING: Module \"$i2cDriverName\" is loaded, we will unload and reload afterwards."
-        unload $i2cDriverName
-    fi
-
-    # keep track about current i2c devices
-    i2cDevicesBeforeLoad=$(ls /sys/class/i2c-dev)
-
-    echo "INFO: Loading driver \"${dir}/$i2cDriverPath\"."
-    insmod "${dir}/$i2cDriverPath" busid=${i2cDeviceNr} sda=${i2cSdaPinNumber} scl=${i2cSclPinNumber}
-    if [ $? -ne 0 ]
-    then
-        error "Could not load \"${dir}/$i2cDriverPath\"."
-        #exit 1
-        errorOccured=true
-    fi
-
-    #### we've loaded the bit-banged driver, so the i2c device list might have been changed
-    ###i2cDevicesAfterLoad=$(ls /sys/class/i2c-dev)
-    ###
-    #### convert the strings holding the i2c devices to an array, so we can process the individual devices
-    ###i2cDevicesBeforeLoadList=($(echo $i2cDevicesBeforeLoad | tr " " "\n"))
-    ###i2cDevicesAfterLoadList=($(echo $i2cDevicesAfterLoad | tr " " "\n"))
-    ###
-    #### create an array, that holds the differences --> will hold the i2c devices that were added due to bit-banged driver loading
-    ###i2cDevicesToDeleteList=()
-    ###for i in "${i2cDevicesAfterLoadList[@]}"; do
-    ###     skip=
-    ###     for j in "${i2cDevicesBeforeLoadList[@]}"; do
-    ###         [[ $i == $j ]] && { skip=1; break; }
-    ###     done
-    ###     [[ -n $skip ]] || i2cDevicesToDeleteList+=("$i")
-    ###done
-    ###declare -p i2cDevicesToDeleteList
-    ###
-    #### remove the devices, so we can cleanly add them afterwards
-    ###for i2cDev in "${i2cDevicesToDeleteList[@]}"
-    ###do
-    ###    echo "INFO: Deleting I2C device ${i2cDev}."
-    ###    echo ${i2cDev##*-} > /sys/class/i2c-gpio/remove_bus
-    ###    if [ $? -ne 0 ]
-    ###    then
-    ###        error "Could not delete I2C device ${i2cDev}."
-    ###        exit 1
-    ###    fi
-    ###done        
-    ###
-    ####if [ -e "/sys/class/i2c-dev/i2c-${i2cDeviceNr}" ]
-    ####then
-    ####    echo "INFO: Deleting I2C device."
-    ####    echo ${i2cDeviceNr} > /sys/class/i2c-gpio/remove_bus
-    ####fi
-    ###
-    ###echo "INFO: Creating I2C bus."
-    ###echo ${i2cDeviceNr} ${i2cSdaPinNumber} ${i2cSclPinNumber} 2 100 > /sys/class/i2c-gpio/add_bus
-    ###if [ $? -ne 0 ]
-    ###then
-    ###    error "Could not create I2C bus."
-    ###    unload $i2cDriverName
-    ###    exit 1
-    ###fi  
 
     if [ "$errorOccured" = false ]
     then
@@ -294,8 +250,6 @@ do
         if [ $? -ne 0 ]
         then
             error "Flashing firmware failed."
-            unload $i2cDriverName
-            #exit 1
             errorOccured=true
         fi   
     fi
@@ -328,7 +282,6 @@ then
         sleep 4
         shutdown now
     else
-        unload $i2cDriverName
         insmod "${dir}/$moitessierDriverPath"
         if [ $? -ne 0 ]
         then
