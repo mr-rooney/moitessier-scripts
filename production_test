@@ -263,7 +263,7 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
     then
         dtoverlayMoitessierValid=1
     fi
-    if [ "$line" = "dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=5" ]
+    if [ "$line" = "dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=${i2cDeviceNr}" ]
     then
         dtoverlayI2CgpioValid=1
     fi
@@ -281,7 +281,7 @@ fi
 
 if [ $dtoverlayI2CgpioValid == "0" ]
 then    
-    sh -c "echo 'dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=5' >> $configFile"
+    sh -c "echo 'dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=${i2cDeviceNr}' >> $configFile"
 fi
 
 cp "${pwd}/${moitessierDeviceTree}" ${overlayPath}
