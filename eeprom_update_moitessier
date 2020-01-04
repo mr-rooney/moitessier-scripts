@@ -4,15 +4,20 @@
 # 
 # Usage: sudo ./eeprom_update_moitesssier
 
+# get kernel release
+kernelRelease=$(uname -r)
+# get machine
+machine=$(uname -m)
+
 # script configuration
-configFile=/boot/config.txt                                 # the boot configuration file used by the Raspberry Pi (absolute path)
-overlayPath=/boot/overlays                                  # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
-moitessierDriverName=moitessier                             # the name of the Moitessier HAT driver module
-moitessierDriverPath=${moitessierDriverName}.ko             # the path of the Moitessier HAT driver module (relative path)
-moitessierCtrlApp=../app/moitessier_ctrl/moitessier_ctrl    # the application used to control the Moitessier HAT (relative path)
-moitessierDevice=/dev/moitessier.ctrl                       # the device used to write control commands to the Moitessier HAT (absolute path)
-moitessierDeviceTreeImage=moitessier.eep                    # the EEPROM image to write (relative path)
-moitessierDeviceTree=moitessier.dtbo                        # the compiled device tree, this will be used as overlay (relative path)
+configFile=/boot/config.txt                                         # the boot configuration file used by the Raspberry Pi (absolute path)
+overlayPath=/boot/overlays                                          # the path to the device tree overlay directory on the Raspberry Pi (absolute path)
+moitessierDriverName=moitessier                                     # the name of the Moitessier HAT driver module
+moitessierDriverPath=${moitessierDriverName}_${kernelRelease}.ko    # the path of the Moitessier HAT driver module (relative path)
+moitessierCtrlApp=../app/moitessier_ctrl/moitessier_ctrl            # the application used to control the Moitessier HAT (relative path)
+moitessierDevice=/dev/moitessier.ctrl                               # the device used to write control commands to the Moitessier HAT (absolute path)
+moitessierDeviceTreeImage=moitessier.eep                            # the EEPROM image to write (relative path)
+moitessierDeviceTree=moitessier.dtbo                                # the compiled device tree, this will be used as overlay (relative path)
 dump=dump.eep
 
 dir="`dirname \"$0\"`"

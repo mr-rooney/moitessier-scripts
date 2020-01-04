@@ -16,9 +16,13 @@
 # Error and info messages will be written to the kernel ring buffer.
 # sys> dmesg
 
+# get kernel release
+kernelRelease=$(uname -r)
+# get machine
+machine=$(uname -m)
 
 # You might need to change the path to the driver
-driverPath=/home/pi/moitessier/modules/moitessier.ko
+driverPath=/home/pi/moitessier/modules/moitessier_${kernelRelease}.ko
 
 # The device file used for the TTY interface
 ttyDev=/dev/moitessier.tty

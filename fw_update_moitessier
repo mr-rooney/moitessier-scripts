@@ -283,10 +283,15 @@ then
         sleep 4
         shutdown now
     else
-        insmod "${dir}/$moitessierDriverPath"
+        # get kernel release
+        kernelRelease=$(uname -r)
+        # get machine
+        machine=$(uname -m)
+        moduleToLoad=${moitessierDriverName}_${kernelRelease}.ko
+        insmod "${dir}/${moduleToLoad}"
         if [ $? -ne 0 ]
         then
-            error "Could not load \"${dir}/$moitessierDriverPath\"."
+            error "Could not load \"${dir}/${moduleToLoad}\"."
             exit 1
         fi   
     fi
