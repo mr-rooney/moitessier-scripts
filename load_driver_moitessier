@@ -30,24 +30,52 @@ ttyDev=/dev/moitessier.tty
 # Path to device tree related information
 hatDevTree=/proc/device-tree/soc/spi@7e204000/moitessier@0/name
 
+# Path to the boot configuration
+bootConfig=/boot/config.txt
+
+# boot configuration strings to check
+bootConfigSpiOn='spi=on';
+bootConfigSpiOff='spi=off';
+bootConfigI2COn='i2c_arm=on'
+bootConfigI2COff='i2c_arm=off'
+bootConfigOk=0
+
 start() {
     hatName=$(cat ${hatDevTree})
     if [ $? -ne 0 ]
     then
-        echo "INFO: Moitessier HAT not available" > /dev/kmsg
+        echo "moitessier: HAT not available" > /dev/kmsg
         exit 1
     fi
     
     if [[ $hatName != *"moitessier"* ]]; then
-        echo "INFO: Moitessier HAT not available" > /dev/kmsg
+        echo "moitessier: HAT not available" > /dev/kmsg
         exit 1
     fi
-   
+    
+    bootConfig=$(cat ${bootConfig})
+    if [ $? -ne 0 ]
+    then
+        echo "moitessier: configuration not available" > /dev/kmsg
+        exit 1
+    fi
+    if [[ "$bootConfig" == *"$bootConfigSpiOn"* && "$bootConfig" != *"$bootConfigSpiOff"* ]];then
+        if [[ "$bootConfig" == *"$bootConfigI2COn"* && "$bootConfig" != *"$bootConfigI2COff"* ]];then
+            bootConfigOk=1
+        fi
+    fi
+    
+    if [ $bootConfigOk -ne 1 ]
+    then
+        echo "moitessier: Driver not loaded. You need to ensure that SPI and I2C are enabled." > /dev/kmsg
+        exit 1
+    fi
+    
     echo "Loading $driverPath" > /dev/kmsg
     insmod $driverPath
     if [ $? -ne 0 ]
     then
-        echo "ERROR: Could not load $driverPath." > /dev/kmsg
+        echo "moitessier: Could not load $driverPath." > /dev/kmsg
         exit 1
     fi
     # we need to sleep a while otherwise changing owner and access mode fails.
@@ -55,7 +83,7 @@ start() {
     chown pi:pi $ttyDev
     if [ $? -ne 0 ]
     then
-        echo "ERROR: Could not set owner for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
+        echo "moitessier: Could not set owner for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
         exit 1
     else
         echo "Setting owner for $ttyDev." > /dev/kmsg
@@ -63,7 +91,7 @@ start() {
     chmod 666 $ttyDev
     if [ $? -ne 0 ]
     then
-        echo "ERROR: Could not set access mode for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
+        echo "moitessier: Could not set access mode for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
         exit 1
     else
         echo "Setting access mode for $ttyDev." > /dev/kmsg
@@ -71,10 +99,10 @@ start() {
 }
 stop() {
     echo "Unloading $driverPath" > /dev/kmsg
-    rmmod $driverPath
+    rmmod moitessier
     if [ $? -ne 0 ]
     then
-        echo "ERROR: Unloading kernel module failed." > /dev/kmsg
+        echo "moitessier: Unloading kernel module failed." > /dev/kmsg
         exit 1
     fi   
 }
