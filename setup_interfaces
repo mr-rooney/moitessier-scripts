@@ -1,0 +1,87 @@
+#!/bin/bash
+
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_BLUE="\e[1;36m"
+FORMAT_DEFAULT="\e[0m"
+
+info()
+{
+    echo -e ${FORMAT_YELLOW}
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo -e ${FORMAT_DEFAULT}
+}
+
+# get kernel release
+kernelRelease=$(uname -r)
+# get machine
+machine=$(uname -m)
+
+# Path to the boot configuration
+bootConfigFile=/boot/config.txt
+bootConfigChanged=0
+hashtag='#'
+
+# boot configuration strings to check
+bootConfigSpiOn='dtparam=spi=on'
+bootConfigSpiOff='dtparam=spi=off'
+bootConfigI2COn='dtparam=i2c_arm=on'
+bootConfigI2COff='dtparam=i2c_arm=off'
+bootConfigI2CgpioOverlay='dtoverlay=i2c-gpio'
+bootConfigI2Cgpio='dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=3'
+
+# delete line containing wrong configuration
+sed -i "/${hashtag}${bootConfigSpiOn}/d" ${bootConfigFile}
+sed -i "/${hashtag}${bootConfigI2COn}/d" ${bootConfigFile}
+sed -i "/${hashtag}${bootConfigI2CgpioOverlay}/d" ${bootConfigFile}
+
+bootConfig=$(cat ${bootConfigFile})
+if [ $? -ne 0 ]
+then
+    echo "moitessier: configuration not available" > /dev/kmsg
+    exit 1
+fi
+
+if [[ "$bootConfig" != *"$bootConfigSpiOn"* ]]
+then
+    echo ${bootConfigSpiOn} >> ${bootConfigFile}
+    echo "moitessier: SPI interface enabled" | tee /dev/kmsg
+    
+    # delete line containing wrong configuration
+    sed -i "/${bootConfigSpiOff}/d" ${bootConfigFile}
+    
+    bootConfigChanged=1
+fi
+
+if [[ "$bootConfig" != *"$bootConfigI2COn"* ]]
+then
+    echo ${bootConfigI2COn} >> ${bootConfigFile}
+    echo "moitessier: I2C interface enabled" | tee /dev/kmsg
+    
+    # delete line containing wrong configuration
+    sed -i "/${bootConfigI2COff}/d" ${bootConfigFile}
+    
+    bootConfigChanged=1
+fi
+
+if [[ "$bootConfig" != *"$bootConfigI2Cgpio"* ]]
+then
+    # delete line containing wrong configuration
+    sed -i "/${bootConfigI2CgpioOverlay}/d" ${bootConfigFile}
+    
+    echo ${bootConfigI2Cgpio} >> ${bootConfigFile}
+    echo "moitessier: I2C GPIOs configured" | tee /dev/kmsg
+    
+    bootConfigChanged=1
+fi
+
+if [ $bootConfigChanged -eq 1 ]
+then
+    info "Boot configuration changed. Your system may need to be restartet for the settings to take effect."
+fi    
+    
+exit $?
+
