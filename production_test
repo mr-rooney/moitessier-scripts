@@ -12,6 +12,8 @@
 # Most common commands:
 #   sudo moitessier/scripts/production_test -k -s --ignore 2>&1 | tee ~/Desktop/production_test.logg
 #   sudo moitessier/scripts/production_test -k -x --ignore 2>&1 | tee ~/Desktop/production_test.logg
+#   sudo moitessier/scripts/production_test -k -s 2>&1 | tee ~/Desktop/production_test.logg
+#   sudo moitessier/scripts/production_test -k -s -g 0 2>&1 | tee ~/Desktop/production_test.logg
 
 flasher=../flasher/fw_update_moitessier
 
@@ -69,6 +71,8 @@ help()
     echo "    -s        : If set the board will shutdown afterwards."
     echo "    -r        : If set the board will reboot afterwards."
     echo "    -x        : If set the board will not shutdown/reboot afterwards."
+    echo "    -g        : If set the board finish the test only if a GNSS fix is accomplished or a timeout occurs."
+    echo "    -w        : If set the test will be finished by pressing a button of the keyboard."
     echo "    --ignore  : If set errors will be ignored and tests will be continued. This option should"
     echo "                be set if you want to test all functions of the board and you do not want to"
     echo "                abort at the first found error."
@@ -174,6 +178,16 @@ results()
     echo -e "RECEIVER          ${format}${receiverFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
+    if [ "${gnssFixFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${gnssFixFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "GNSS FIX          ${format}${gnssFixFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
     if [ "${databaseFailed}" == "${TEST_OK}" ]
     then        
         format=${FORMAT_GREEN}
@@ -195,6 +209,9 @@ sOption=0
 rOption=0
 xOption=0
 ignoreOption=0
+gOption=0
+gCycles=0
+wOption=0
 
 NOT_TESTED="not tested"
 TEST_OK="ok"
@@ -208,8 +225,9 @@ microcontrollerFailed=${NOT_TESTED}
 databaseFailed=${NOT_TESTED}
 gpioFailed=${NOT_TESTED}
 systemFailed=${NOT_TESTED}
+gnssFixFailed=${NOT_TESTED}
 
-while getopts "kshxr-:" option
+while getopts "kshxr-:g:w" option
 do
     case $option in
         k) kOption="-k"
@@ -222,6 +240,11 @@ do
             ;;
         x) xOption=1
             ;;
+        g) gOption=1
+            gCycles=${OPTARG}
+            ;;        
+        w) wOption=1
+            ;;                
         -) case "${OPTARG}" in
                 ignore)
                     ignoreOption=1
@@ -239,14 +262,15 @@ do
     esac
 done
 
+# check if we have the proper rights
 if [ "$EUID" -ne 0 ]
 then 
     error "You must run this script with root privileges."
     exit
 fi
 
+# only one boot option must be defined
 bootOption=$(expr $rOption + $sOption + $xOption)
-
 if [ $bootOption -gt 1 ]
 then
     error "Option -r, -s and/or -n must not be applied at the same time."
@@ -304,7 +328,7 @@ then
 fi
 
 # check the sensors
-"${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations} --all -s -t ${temperature} -r ${temperatureRange} -p ${pressure} -n ${pressureRange}
+"${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations} --mpu --press --cpu -s -t ${temperature} -r ${temperatureRange} -p ${pressure} -n ${pressureRange}
 if [ $? -ne 0 ]
 then
     error "Checking sensors failed. This might be okay, if one of the sensors is not assembled on the board."
@@ -406,12 +430,19 @@ then
     error "Writing EEPROM failed"
     eepromFailed=${TEST_NOK}
     results
-    exit 1
+    if [ $ignoreOption == "1" ]
+    then
+        sleep 3  
+    else
+        results
+        exit 1      
+    fi
 else
     eepromFailed=${TEST_OK}
 fi
 
 # check the microcontroller and read relevant information
+# get the serial number
 serial=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep serial)
 if [ $? -ne 0 ]
 then
@@ -421,7 +452,10 @@ then
     exit 1
 else
     microcontrollerFailed=${TEST_OK}
+    #serial=${serial#"serial - "}
 fi
+
+# get the ranging values for the AIS receiver
 rng=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep rng)
 if [ $? -ne 0 ]
 then
@@ -433,6 +467,7 @@ else
     microcontrollerFailed=${TEST_OK}
 fi
 
+# get the firmware/app version
 appVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "app version")
 if [ $? -ne 0 ]
 then
@@ -444,6 +479,7 @@ else
     microcontrollerFailed=${TEST_OK}
 fi
 
+# get the hardware revision
 hwVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "hardware version")
 if [ $? -ne 0 ]
 then
@@ -493,6 +529,7 @@ do
 	fi
 done
 
+# evaluate the results of AIS and GNSS
 if [ $gnssValid -eq 1 ] && [ $ais1Valid -eq 1 ] && [ $ais2Valid -eq 1 ]
 then
     info "AIS/GNSS successfull - AIS1 = ${ais1Cnt}, AIS2 = ${ais2Cnt}, GNSS = ${gnssCnt}"
@@ -500,10 +537,130 @@ then
 else
     error "AIS/GNSS failed"
     receiverFailed=${TEST_NOK}
-    results
-    exit 1  
+    if [ $ignoreOption == "1" ]
+    then
+        sleep 3  
+    else
+        results
+        exit 1      
+    fi
 fi
 
+
+# check GNSS fix, only if enabled
+fixFound=0
+k=0
+
+if [ ${gOption} -eq 1 ]
+then
+    while true
+    do
+        # check AIS and GNSS
+        IFS=$'\r\n' GLOBIGNORE='*' command eval  'dat=($(head -n 20 ${device}))'
+        #printf '%s\n' "${dat[@]}"
+        sleep 0.5
+        
+        for line in "${dat[@]}"
+        do
+            gnssValid=0
+        	#echo $i
+        	if [[ "$line" == *"GPRMC"* ]]
+        	then
+        	    gnssValid=1
+        	fi
+        	
+        	if [[ "$line" == *"GNRMC"* ]]
+        	then
+        	    gnssValid=1
+        	fi
+        	
+        	if [ ${gnssValid} -eq 1 ]
+            then
+            	delimiter=","       # delimiter used in the target list file
+                
+                # get the number of fields per line in the target list file
+                fieldCnt=$(echo "${line}" | awk -F"${delimiter}" '{print NF - 1}')
+                
+                #echo "line="$line
+                echo $line
+                #echo "fieldCnt="$fieldCnt
+                
+                if [ $fieldCnt -gt 13 ]
+                then
+                    echo "warning: fieldCnt="${fieldCnt}
+                    continue  
+                fi
+                
+                # parse the fields
+                for((i = 1; i <= fieldCnt; i++))
+                do
+                    part=$(echo $line | cut -d ${delimiter} -f${i})
+                    case "$i" in
+                      1)
+                            SENTENCE=${part}
+                            ;;
+                      2)
+                            UTC=${part}
+                            ;;
+                      3)
+                            STATUS=${part}
+                            break       # we can leave the loop, all other fields are not relevant
+                            ;;
+                      *)
+                            break;;
+                    esac
+                done
+                #echo "SENTENCE="$SENTENCE
+                #echo "UTC="$UTC
+                #echo "STATUS="$STATUS
+                
+                # do we have a fix?
+                if [ "$STATUS" = "A" ]
+                then
+                    fixFound=1
+                    break
+                fi
+            fi  
+        done
+        if [ $fixFound -eq 1 ]
+        then
+            break
+        fi
+        
+        if [ $gCycles -ne 0 ]
+        then
+            k=$((k+1))
+            if [ $k -ge $gCycles ]
+            then
+                break
+            fi
+        fi
+    done
+fi    
+
+gFix=-1 # GNSS fix not tested
+if [ $gOption -eq 1 ]
+then
+    if [ $fixFound -eq 1 ]
+    then
+        gFix=1
+        gnssFixFailed=${TEST_OK}
+        info "GNSS fix"
+    else
+        gFix=0
+        gnssFixFailed=${TEST_NOK}
+        error "no GNSS fix"
+        if [ $ignoreOption == "1" ]
+        then
+            sleep 3  
+        else
+            results
+            exit 1      
+        fi
+    fi
+fi    
+
+# get the timestamp via Internet
 timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)
 if [ $? -ne 0 ]
 then
@@ -512,6 +669,7 @@ then
     exit 1
 fi
 
+# any errors?
 if [ "$sensorsFailed" != "${TEST_OK}" -o "$firmwareFailed" != "${TEST_OK}" -o "$eepromFailed" != "${TEST_OK}" -o "$receiverFailed" != "${TEST_OK}" -o "$microcontrollerFailed" != "${TEST_OK}" -o "$gpioFailed" != "${TEST_OK}" -o "$systemFailed" != "${TEST_OK}" ]
 then
     results
@@ -533,8 +691,48 @@ then
     fi
 fi
 
-dbEntry=${timestamp}";"${serial}";"${rng}";"${appVersion}";"${hwVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}
-echo ${dbEntry} >> ${database}
+kernelVersion=$(uname -r)
+if [ $? -ne 0 ]
+then
+    error "Could not get kernel version"
+    kernelVersion="unkown"
+fi
+debianVersion=$(cat /etc/debian_version)
+if [ $? -ne 0 ]
+then
+    error "Could not get Debian version"
+    debianVersion="unkown"
+fi
+piVersion=$(cat /proc/cpuinfo | grep "Model")
+if [ $? -ne 0 ]
+then
+    error "Could not get Raspberry Pi version"
+    piVersion="unkown"
+fi
+moitessierVersion=$(dpkg -s moitessier | grep "Version:")
+if [ $? -ne 0 ]
+then
+    error "Could not get Moitessier package version"
+    piVersion="unkown"
+fi
+
+# create database entry
+dbEntry=${kernelVersion}";"${debianVersion}";"${piVersion}";"${moitessierVersion}";"${timestamp}";"${serial}";"${rng}";"${appVersion}";"${hwVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}";"${gFix}
+# replace tabs with spaces
+dbEntryFormatted=$(echo ${dbEntry//$'\t'/ })
+
+if [ ${#dbEntryFormatted} -eq 0 ]
+then
+    error "Could not write database file ${database} - string error"
+    databaseFailed=${TEST_NOK}
+    results
+    exit 1
+fi    
+
+echo "Database entry: "${dbEntryFormatted}
+
+# write to database    
+echo ${dbEntryFormatted} >> ${database}
 if [ $? -ne 0 ]
 then
     error "Could not write database file ${database}"
@@ -545,9 +743,37 @@ else
     databaseFailed=${TEST_OK}
 fi
 
+# verify if writing was successfull
+verification=$(cat ${database} | grep "${dbEntryFormatted}")
+if [ "${verification}" != "${dbEntryFormatted}" ]
+then
+    error "Database verification failed"
+    databaseFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    databaseFailed=${TEST_OK}
+fi
+
 results
 
-sleep 2
+if [ ${wOption} -eq 1 ]
+then
+    info "Press [ENTER] to continue"
+    while [ true ]
+    do    
+        read -s -N 1 key
+        if [[ $key == $'\x0a' ]];        # if input == ENTER key
+        then
+            break
+        else
+            echo "Only the ENTER key will be accepted"
+        fi
+    done
+else
+    sleep 2    
+fi    
+
 if [ ${sOption} -eq 1 ]
 then
     info "shutting down system"
