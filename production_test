@@ -10,10 +10,10 @@
 # Usage: ./fw_update_moitessier -h
 #
 # Most common commands:
-#   sudo moitessier/scripts/production_test -k -s --ignore 2>&1 | tee ~/Desktop/production_test.logg
-#   sudo moitessier/scripts/production_test -k -x --ignore 2>&1 | tee ~/Desktop/production_test.logg
-#   sudo moitessier/scripts/production_test -k -s 2>&1 | tee ~/Desktop/production_test.logg
-#   sudo moitessier/scripts/production_test -k -s -g 0 2>&1 | tee ~/Desktop/production_test.logg
+#   sudo moitessier/scripts/production_test -k -s --ignore 2>&1 | tee ~/Desktop/production_test.log
+#   sudo moitessier/scripts/production_test -k -x --ignore 2>&1 | tee ~/Desktop/production_test.log
+#   sudo moitessier/scripts/production_test -k -s 2>&1 | tee ~/Desktop/production_test.log
+#   sudo moitessier/scripts/production_test -k -s -g 0 2>&1 | tee ~/Desktop/production_test.log
 
 flasher=../flasher/fw_update_moitessier
 
@@ -32,6 +32,7 @@ sensorIterations=1
 database=/home/pi/Desktop/moitessier_db.txt
 moitessierCtrl=../app/moitessier_ctrl/moitessier_ctrl
 deviceCtrl=/dev/moitessier.ctrl
+gnssLog=gnss.log                                                # the file where the GNSS data is logged used while fix testing
 
 # Default values for sensor sanity check.
 temperature=35                                                  # temperature in °C       
@@ -87,6 +88,17 @@ error()
     echo -e "${FORMAT_RED}ERROR occured!!${FORMAT_DEFAULT}"
     echo
     echo -e "${FORMAT_RED}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+warning()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_YELLOW}WARNING!!${FORMAT_DEFAULT}"
+    echo
+    echo -e "${FORMAT_YELLOW}${1}${FORMAT_DEFAULT}"
     echo "******************************************************************************************"
     echo
 }
@@ -553,90 +565,37 @@ k=0
 
 if [ ${gOption} -eq 1 ]
 then
+    info "Checking GNSS fix"
+    
+    cat ${device} > ${gnssLog} &
+    echo
     while true
     do
-        # check AIS and GNSS
-        IFS=$'\r\n' GLOBIGNORE='*' command eval  'dat=($(head -n 20 ${device}))'
-        #printf '%s\n' "${dat[@]}"
-        sleep 0.5
-        
-        for line in "${dat[@]}"
-        do
-            gnssValid=0
-        	#echo $i
-        	if [[ "$line" == *"GPRMC"* ]]
-        	then
-        	    gnssValid=1
-        	fi
-        	
-        	if [[ "$line" == *"GNRMC"* ]]
-        	then
-        	    gnssValid=1
-        	fi
-        	
-        	if [ ${gnssValid} -eq 1 ]
-            then
-            	delimiter=","       # delimiter used in the target list file
-                
-                # get the number of fields per line in the target list file
-                fieldCnt=$(echo "${line}" | awk -F"${delimiter}" '{print NF - 1}')
-                
-                #echo "line="$line
-                echo $line
-                #echo "fieldCnt="$fieldCnt
-                
-                if [ $fieldCnt -gt 13 ]
-                then
-                    echo "warning: fieldCnt="${fieldCnt}
-                    continue  
-                fi
-                
-                # parse the fields
-                for((i = 1; i <= fieldCnt; i++))
-                do
-                    part=$(echo $line | cut -d ${delimiter} -f${i})
-                    case "$i" in
-                      1)
-                            SENTENCE=${part}
-                            ;;
-                      2)
-                            UTC=${part}
-                            ;;
-                      3)
-                            STATUS=${part}
-                            break       # we can leave the loop, all other fields are not relevant
-                            ;;
-                      *)
-                            break;;
-                    esac
-                done
-                #echo "SENTENCE="$SENTENCE
-                #echo "UTC="$UTC
-                #echo "STATUS="$STATUS
-                
-                # do we have a fix?
-                if [ "$STATUS" = "A" ]
-                then
-                    fixFound=1
-                    break
-                fi
-            fi  
-        done
-        if [ $fixFound -eq 1 ]
+        dat=$(cat ${gnssLog} | grep ".*G[P|N]RMC,[^,]*,A,*")
+        if [ $? -eq 0 ]
         then
+            fixFound=1
+            echo
+            echo $dat
             break
         fi
-        
+        sleep 1
+        echo -n "*"
         if [ $gCycles -ne 0 ]
         then
             k=$((k+1))
             if [ $k -ge $gCycles ]
             then
+                echo
                 break
             fi
         fi
     done
-fi    
+    
+    kill %1 
+    
+    rm ${gnssLog} 
+fi
 
 gFix=-1 # GNSS fix not tested
 if [ $gOption -eq 1 ]
@@ -689,30 +648,41 @@ then
     else
         databaseFailed=${TEST_OK}
     fi
+    
+    chmod 666 ${database}
+    if [ $? -ne 0 ]
+    then
+        error "Could not change access mode of database file ${database}"
+        databaseFailed=${TEST_NOK}
+        results
+        exit 1
+    else
+        databaseFailed=${TEST_OK}
+    fi
 fi
 
 kernelVersion=$(uname -r)
 if [ $? -ne 0 ]
 then
-    error "Could not get kernel version"
+    warning "Could not get kernel version"
     kernelVersion="unkown"
 fi
 debianVersion=$(cat /etc/debian_version)
 if [ $? -ne 0 ]
 then
-    error "Could not get Debian version"
+    warning "Could not get Debian version"
     debianVersion="unkown"
 fi
 piVersion=$(cat /proc/cpuinfo | grep "Model")
 if [ $? -ne 0 ]
 then
-    error "Could not get Raspberry Pi version"
+    warning "Could not get Raspberry Pi version"
     piVersion="unkown"
 fi
 moitessierVersion=$(dpkg -s moitessier | grep "Version:")
 if [ $? -ne 0 ]
 then
-    error "Could not get Moitessier package version"
+    warning "Could not get Moitessier package version"
     piVersion="unkown"
 fi
 
