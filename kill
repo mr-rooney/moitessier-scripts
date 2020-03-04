@@ -1,0 +1,63 @@
+#!/bin/bash
+#
+# This script is used to update the firmware of the Moitessier HAT microcontroller.
+# The latest firmware will be loaded automatically form an online repository.
+# 
+# Ensure that you have the flashing tool compiled (see 
+# https://github.com/mr-rooney/moitessier for further information). You might
+# need to change the paths below.
+#
+# Usage: ./fw_update_moitessier -h
+
+blackList=fw_update_moitessier_black_list.txt                   # file that holds the processes/programms that need to be killed before the update can be executed (relative path)
+retries=5                                                       # number of retries before giving up the firmware update
+
+# calling path
+dir="`dirname \"$0\"`"
+
+# https://misc.flogisoft.com/bash/tip_colors_and_formatting
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_DEFAULT="\e[0m"
+
+info()
+{
+    echo
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo
+}
+
+warning()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_YELLOW}WARNING!!${FORMAT_DEFAULT}"
+    echo
+    echo -e "${FORMAT_YELLOW}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+# Check if OpenPlotter, and especially kplex, is running. If running, we need to stop it, otherwise loading the
+# driver for the Moitessier HAT fails as resource is busy.
+# The processes/programms to kill are specified in the black list file
+echo "INFO: Terminating running processes..."
+while IFS='' read -r line || [[ -n "$line" ]]; do
+    toKill="$line"
+    # we need to replace carriage return and line feed
+    toKill=$(echo ${toKill} | tr -d '\n','\r')
+    
+    pid=$(pidof ${toKill})
+    if [ $? -eq 0 ]
+    then
+        info "\"${toKill}\" killed"
+        pkill ${toKill}
+    else
+        info "\"${toKill}\" not running"
+    fi
+done < "${dir}/${blackList}"
+
+exit 0

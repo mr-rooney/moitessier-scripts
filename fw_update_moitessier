@@ -63,8 +63,28 @@ error()
 {
     echo
     echo "******************************************************************************************"
-    echo "ERROR occured!!"
+    echo -e "${FORMAT_RED}ERROR occured!!${FORMAT_DEFAULT}"
     echo
+    echo -e "${FORMAT_RED}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+warning()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_YELLOW}WARNING!!${FORMAT_DEFAULT}"
+    echo
+    echo -e "${FORMAT_YELLOW}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+info()
+{
+    echo
+    echo "******************************************************************************************"
     echo $1
     echo "******************************************************************************************"
     echo
@@ -138,7 +158,7 @@ fi
 # we need to reboot the Raspberry Pi to apply the changes in the configuration
 if [ $dtoverlayI2CgpioValid == "0" ] 
 then
-    echo -e "${FORMAT_RED}${configFile} has been changed. System will reboot. You need to call this script afterwards again.${FORMAT_DEFAULT}"
+    error "${configFile} has been changed. System will reboot. You need to call this script afterwards again."
     sleep 10
     reboot
 fi
@@ -147,10 +167,10 @@ if [ $rOption -eq 1 ]
 then
     fwFile=$fwFileRemote
 
-    echo "INFO: Loading latest firmware binary form \"$repo\"."
+    info "Loading latest firmware binary form \"$repo\"."
     if [ -e $fwFile ]
     then
-        echo "WARNING: The firmware file \"$fwFile\" already exists."
+        warning "The firmware file \"$fwFile\" already exists."
         
         while true
 	    do
@@ -186,11 +206,7 @@ then
     exit 1
 fi
 
-echo 
-echo "**************************************************************************************"
-echo "The firmware file \"${fwFile}\" is used for the update"
-echo "**************************************************************************************"
-echo 
+info "The firmware file \"${fwFile}\" is used for the update"
 
 for((ry = 0; ry < $retries; ry++))
 do
@@ -201,7 +217,7 @@ do
         # Check if OpenPlotter, and especially kplex, is running. If running, we need to stop it, otherwise loading the
         # driver for the Moitessier HAT fails as resource is busy.
         # The processes/programms to kill are specified in the black list file
-        echo "INFO: Terminating running processes..."
+        info "Terminating running processes..."
         while IFS='' read -r line || [[ -n "$line" ]]; do
             toKill="$line"
             # we need to replace carriage return and line feed
@@ -210,17 +226,17 @@ do
             pid=$(pidof ${toKill})
             if [ $? -eq 0 ]
             then
-                echo "INFO: Killing process ${toKill}."
+                info "\"${toKill}\" killed"
                 pkill ${toKill}
             else
-                echo "INFO: ${toKill} not running."
+                info "\"${toKill}\" not running"
             fi
         done < "${dir}/${blackList}"
 
         lsm=$(lsmod | grep $moitessierDriverName)
         if [ $? -eq 0 ]
         then
-            echo "WARNING: Module \"$moitessierDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
+            warning "Module \"$moitessierDriverName\" is loaded, we will unload to gain access to the required GPIO pins."
             unload $moitessierDriverName
             if [ $? -ne 0 ]
             then
@@ -244,7 +260,7 @@ do
             secondsElapsed=$((currentTimestamp-startTimestamp))
         done
         echo
-        echo "INFO: Flashing firmware."
+        info "Flashing firmware."
         # GPIO18...nRESET pin
         # GPIO17...BOOT0 pin
         "${dir}/$flasher" -R -i 18,,,17,,,-18,,,,,18,,:,,-17,,,18,,,-18,,,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-${i2cDeviceNr}
@@ -265,18 +281,11 @@ done
 
 if [ "$errorOccured" = false ]
 then
-    echo 
-    echo "**************************************************************************************"
-    echo "*                                                                                    *"
-    echo "* FIRMWARE UPDATE SUCCESSFULL!!!                                                     *"
-    echo "*                                                                                    *"
+    info "FIRMWARE UPDATE SUCCESSFULL!!!"
     if [ $fOption == "1" ]
     then
-    echo "* Shutting down system. YOU NEED TO UNPLUG AND REPLUG THE POWER SUPPLY AFTERWARDS!!! *"
-    echo "*                                                                                    *"
+        warning "Shutting down system. YOU NEED TO UNPLUG AND REPLUG THE POWER SUPPLY AFTERWARDS!!!"
     fi
-    echo "**************************************************************************************"
-    echo
 
     if [ $fOption == "1" ]
     then
@@ -296,13 +305,7 @@ then
         fi   
     fi
 else
-    echo 
-    echo "**************************************************************************************"
-    echo "*                                                                                    *"
-    echo "* FIRMWARE UPDATE FAILED!!!                                                          *"
-    echo "*                                                                                    *"
-    echo "**************************************************************************************"
-    echo
+    error "FIRMWARE UPDATE FAILED!!!"
     
     exit 1
 fi
