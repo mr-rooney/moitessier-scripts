@@ -24,6 +24,10 @@ machine=$(uname -m)
 # You might need to change the path to the driver
 driverPath=/home/pi/moitessier/modules/moitessier_${kernelRelease}.ko
 
+# Shutdown script
+shutdownScript=/home/pi/moitessier/scripts/system_shutdown
+pidShutdownScript=0
+
 # The device file used for the TTY interface
 ttyDev=/dev/moitessier.tty
 
@@ -86,7 +90,7 @@ start() {
         echo "moitessier: Could not set owner for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
         exit 1
     else
-        echo "Setting owner for $ttyDev." > /dev/kmsg
+        echo "moitessier: Setting owner for $ttyDev." > /dev/kmsg
     fi
     chmod 666 $ttyDev
     if [ $? -ne 0 ]
@@ -94,11 +98,20 @@ start() {
         echo "moitessier: Could not set access mode for $ttyDev. You might need super user rights to access the device." > /dev/kmsg
         exit 1
     else
-        echo "Setting access mode for $ttyDev." > /dev/kmsg
+        echo "moitessier: Setting access mode for $ttyDev." > /dev/kmsg
     fi
+    
+    ${shutdownScript} &
+    pidShutdownScript=$!
+    echo "moitessier: PID shutdown=${pidShutdownScript}" > /dev/kmsg    
 }
 stop() {
     echo "Unloading $driverPath" > /dev/kmsg
+    if [ $pidShutdownScript -ne 0 ]
+    then
+        kill $pidShutdownScript
+        pidShutdownScript=0
+    fi
     rmmod moitessier
     if [ $? -ne 0 ]
     then
@@ -108,14 +121,14 @@ stop() {
 }
 
 case "$1" in
-  start)
+    start)
         start;;
-  stop)
+    stop)
         stop;;
-   restart)
+    restart)
         stop
         start;;
-  *)
+    *)
         echo "Usage: $0 {start|stop|restart}"
         exit 1;;
 esac

@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# This script is used to poll the shutdown request triggered by
+# the Moitessier driver.
+#
+
+
+
+# https://misc.flogisoft.com/bash/tip_colors_and_formatting
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_DEFAULT="\e[0m"
+
+info()
+{
+    echo
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo
+}
+
+echo "moitessier: started $0" > /dev/kmsg    
+
+while true
+do
+    req=$(cat "/sys/module/moitessier/parameters/DO_SHUTDOWN")
+    if [ $req -eq 1 ]
+    then
+        info "Shutting down system"
+        echo "moitessier: shutting down" > /dev/kmsg
+        sudo shutdown now
+    fi
+    sleep 2
+done
+
+exit 0

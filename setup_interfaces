@@ -78,10 +78,14 @@ then
     bootConfigChanged=1
 fi
 
+echo "moitessier: setting up /etc/modules" | tee /dev/kmsg
+sed -i "/i2c-dev/d" /etc/modules
+echo "i2c-dev" | sudo tee -a /etc/modules
+
 if [ $bootConfigChanged -eq 1 ]
 then
     info "Boot configuration changed. Your system may need to be restartet for the settings to take effect."
-fi    
-    
+fi 
+
 exit $?
 

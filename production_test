@@ -68,15 +68,27 @@ help()
     echo "This script is used to test the Moitessier HAT."
     echo       
     echo "Available options:"
-    echo "    -k        : If set the device tree overlay will be kept."
-    echo "    -s        : If set the board will shutdown afterwards."
-    echo "    -r        : If set the board will reboot afterwards."
-    echo "    -x        : If set the board will not shutdown/reboot afterwards."
-    echo "    -g        : If set the board finish the test only if a GNSS fix is accomplished or a timeout occurs."
-    echo "    -w        : If set the test will be finished by pressing a button of the keyboard."
-    echo "    --ignore  : If set errors will be ignored and tests will be continued. This option should"
-    echo "                be set if you want to test all functions of the board and you do not want to"
-    echo "                abort at the first found error."
+    echo "    -k                : If set the device tree overlay will be kept."
+    echo "    -s                : If set the board will shutdown afterwards."
+    echo "    -r                : If set the board will reboot afterwards."
+    echo "    -x                : If set the board will not shutdown/reboot afterwards."
+    echo "    -g N              : If set the board finish the test only if a GNSS fix is accomplished or a timeout occurs."
+    echo "                          N...0  --> no timeout"
+    echo "                          N...>0 --> timeout in seconds"
+    echo "    -e N              : If set the board will test external GNSS antenna."
+    echo "                          N...0  --> no timeout"
+    echo "                          N...>0 --> timeout in seconds"
+    echo "    -w                : If set the test will be finished by pressing a button of the keyboard."
+    echo "    -b                : If set the shutdown button will be tested."
+    echo "    -t                : Button test timeout."
+    echo "    -a T,TR,P,PR      : The values for the sanity check of the sensors."
+    echo "                          T  --> temperature"
+    echo "                          TR --> temperature range"
+    echo "                          P  --> pressure"
+    echo "                          PR --> pressure range"
+    echo "    --ignore          : If set errors will be ignored and tests will be continued. This option should"
+    echo "                        be set if you want to test all functions of the board and you do not want to"
+    echo "                        abort at the first found error."
     echo "******************************************************************************************"
     echo
 }
@@ -127,7 +139,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "SYSTEM            ${format}${systemFailed}${FORMAT_DEFAULT}"
+    echo -e "SYSTEM                             ${format}${systemFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${sensorsFailed}" == "${TEST_OK}" ]
@@ -137,7 +149,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "SENSORS           ${format}${sensorsFailed}${FORMAT_DEFAULT}"
+    echo -e "SENSORS                            ${format}${sensorsFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${firmwareFailed}" == "${TEST_OK}" ]
@@ -147,7 +159,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "FIRMWARE          ${format}${firmwareFailed}${FORMAT_DEFAULT}"
+    echo -e "FIRMWARE                           ${format}${firmwareFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${eepromFailed}" == "${TEST_OK}" ]
@@ -157,7 +169,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "EEPROM            ${format}${eepromFailed}${FORMAT_DEFAULT}"
+    echo -e "EEPROM                             ${format}${eepromFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${gpioFailed}" == "${TEST_OK}" ]
@@ -167,7 +179,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "GPIO              ${format}${gpioFailed}${FORMAT_DEFAULT}"
+    echo -e "GPIO                               ${format}${gpioFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${microcontrollerFailed}" == "${TEST_OK}" ]
@@ -177,7 +189,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "MICROCONTROLLER   ${format}${microcontrollerFailed}${FORMAT_DEFAULT}"
+    echo -e "MICROCONTROLLER                    ${format}${microcontrollerFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${receiverFailed}" == "${TEST_OK}" ]
@@ -187,7 +199,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "RECEIVER          ${format}${receiverFailed}${FORMAT_DEFAULT}"
+    echo -e "RECEIVER                           ${format}${receiverFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${gnssFixFailed}" == "${TEST_OK}" ]
@@ -197,7 +209,37 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "GNSS FIX          ${format}${gnssFixFailed}${FORMAT_DEFAULT}"
+    echo -e "GNSS FIX (INTERNAL ANTENNA)        ${format}${gnssFixFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${gnssExtAntFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${gnssExtAntFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "EXTERNAL GNSS ANTENNA DETECTED     ${format}${gnssExtAntFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${gnssFixExtAntFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${gnssFixExtAntFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "GNSS FIX (EXTERNAL ANTENNA)        ${format}${gnssFixExtAntFailed}${FORMAT_DEFAULT}"
+    
+    format=${FORMAT_RED}
+    if [ "${buttonFailed}" == "${TEST_OK}" ]
+    then        
+        format=${FORMAT_GREEN}
+    elif [ "${buttonFailed}" == "${NOT_TESTED}" ]
+    then
+        format=${FORMAT_YELLOW}
+    fi
+    echo -e "SHUTDOWN BUTTON                    ${format}${buttonFailed}${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${databaseFailed}" == "${TEST_OK}" ]
@@ -207,11 +249,28 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "DATABASE          ${format}${databaseFailed}${FORMAT_DEFAULT}"
+    echo -e "DATABASE                           ${format}${databaseFailed}${FORMAT_DEFAULT}"
     
     echo "******************************************************************************************"
     echo
 }
+
+# we are logging the production test in a board specific log file
+logDir=/home/pi/Desktop/production                              # the directory where log files should be stored
+# create log directory
+if [ ! -d "${logDir}" ]; then
+    mkdir ${logDir}
+    if [ $? -ne 0 ]
+    then
+        error "Creating directory \"${logDir}\" failed"
+        exit 1
+    else
+        info "Created directory \"${logDir}\""
+    fi
+fi
+tmpLogFile=tmp.log
+exec > >(tee -i ${logDir}/${tmpLogFile})
+exec 2>&1
 
 help
 
@@ -224,6 +283,12 @@ ignoreOption=0
 gOption=0
 gCycles=0
 wOption=0
+bOption=0
+tCycles=0
+eOption=0
+eCycles=0
+aOption=0
+aArg=""
 
 NOT_TESTED="not tested"
 TEST_OK="ok"
@@ -238,8 +303,11 @@ databaseFailed=${NOT_TESTED}
 gpioFailed=${NOT_TESTED}
 systemFailed=${NOT_TESTED}
 gnssFixFailed=${NOT_TESTED}
+gnssExtAntFailed=${NOT_TESTED}
+gnssFixExtAntFailed=${NOT_TESTED}
+buttonFailed=${NOT_TESTED}
 
-while getopts "kshxr-:g:w" option
+while getopts "kshxr-:g:wbt:e:a:" option
 do
     case $option in
         k) kOption="-k"
@@ -254,9 +322,20 @@ do
             ;;
         g) gOption=1
             gCycles=${OPTARG}
+            ;;
+        e) eOption=1
+            eCycles=${OPTARG}
+            ;;     
+        a) aOption=1
+            aArg=${OPTARG}
             ;;        
         w) wOption=1
             ;;                
+        b) bOption=1
+            ;;                
+        t) tOption=1
+            tCycles=${OPTARG}
+            ;;        
         -) case "${OPTARG}" in
                 ignore)
                     ignoreOption=1
@@ -281,6 +360,28 @@ then
     exit
 fi
 
+if [ ${gOption} -eq 0 ] && [ ${eOption} -eq 0 ]
+then
+    warning "GNSS fix (external/internal antenna) is not tested"    
+fi 
+
+if [ ${gOption} -eq 0 ] && [ ${eOption} -eq 1 ]
+then
+    warning "GNSS fix (external antenna) is not tested"    
+fi 
+
+if [ ${aOption} -eq 1 ]
+then
+    IFS=',' # char , is set as delimiter
+    read -ra sanityValues <<< "${aArg}" # string is read into an array as tokens separated by IFS
+    temperature=${sanityValues[0]} 
+    temperatureRange=${sanityValues[1]}            
+    pressure=${sanityValues[2]}                  
+    pressureRange=${sanityValues[3]}   
+    IFS=' ' # reset to default value after usage
+fi    
+ 
+ 
 # only one boot option must be defined
 bootOption=$(expr $rOption + $sOption + $xOption)
 if [ $bootOption -gt 1 ]
@@ -503,6 +604,18 @@ else
     microcontrollerFailed=${TEST_OK}
 fi
 
+# get the GNSS firmware version
+gnssVersion=$("${pwd}/${moitessierCtrl}" ${deviceCtrl} 1 | grep "gnss version")
+if [ $? -ne 0 ]
+then
+    error "Could not get gnss version"
+    microcontrollerFailed=${TEST_NOK}
+    results
+    exit 1
+else
+    microcontrollerFailed=${TEST_OK}
+fi
+
 # check AIS and GNSS
 IFS=$'\r\n' GLOBIGNORE='*' command eval  'dat=($(head -n 60 ${device}))'
 printf '%s\n' "${dat[@]}"
@@ -559,13 +672,13 @@ else
 fi
 
 
-# check GNSS fix, only if enabled
+# checking GNSS fix with internal antenna
 fixFound=0
 k=0
 
 if [ ${gOption} -eq 1 ]
 then
-    info "Checking GNSS fix"
+    info "Checking GNSS fix (internal patch antenna)"
     
     cat ${device} > ${gnssLog} &
     echo
@@ -597,18 +710,18 @@ then
     rm ${gnssLog} 
 fi
 
-gFix=-1 # GNSS fix not tested
+gFix=-1 # GNSS fix not tested (internal antenna)
 if [ $gOption -eq 1 ]
 then
     if [ $fixFound -eq 1 ]
     then
         gFix=1
         gnssFixFailed=${TEST_OK}
-        info "GNSS fix"
+        info "GNSS fix (internal antenna)"
     else
         gFix=0
         gnssFixFailed=${TEST_NOK}
-        error "no GNSS fix"
+        error "no GNSS fix (internal antenna)"
         if [ $ignoreOption == "1" ]
         then
             sleep 3  
@@ -617,7 +730,226 @@ then
             exit 1      
         fi
     fi
-fi    
+fi  
+
+
+
+
+# checking external GNSS antenna
+extAntOk=0
+k=0
+
+if [ ${eOption} -eq 1 ]
+then
+    info "Checking external GNSS antenna"
+    
+    info "Attach external GNSS antenna and press [ENTER] to continue"
+    while [ true ]
+    do    
+        read -s -N 1 key
+        if [[ $key == $'\x0a' ]];        # if input == ENTER key
+        then
+            break
+        else
+            echo "Only the ENTER key will be accepted"
+        fi
+    done
+    
+    # start reading data in a background process and store it in a log file
+    cat ${device} > ${gnssLog} &
+    echo
+    while true
+    do
+        # do we received the proper NMEA sentence?
+        # the GNSS module will send $GPTXT,01,01,02,ANTSTATUS=OK*3B if an external antenna is connected,
+        # otherwise $GPTXT,01,01,02,ANTSTATUS=OPEN*2B
+        dat=$(cat ${gnssLog} | grep ".*ANTSTATUS=OK*")
+        if [ $? -eq 0 ]     # external antenna is detected
+        then
+            extAntOk=1
+            echo
+            echo $dat
+            break
+        fi
+        sleep 1
+        echo -n "*"
+        
+        # is a timeout defined?
+        if [ $eCycles -ne 0 ]
+        then
+            k=$((k+1))
+            if [ $k -ge $eCycles ]  # timeout occured
+            then
+                echo
+                break
+            fi
+        fi
+    done
+    
+    kill %1 
+    
+    rm ${gnssLog} 
+fi
+
+extAnt=-1 # external GNSS antenna not tested
+if [ $eOption -eq 1 ]
+then
+    if [ $extAntOk -eq 1 ]  # external antenna detected
+    then
+        extAnt=1
+        gnssExtAntFailed=${TEST_OK}
+        info "external GNSS antenna detected"
+    else    # extenal antenna not detected, timeout occured
+        extAnt=0
+        gnssExtAntFailed=${TEST_NOK}
+        error "no external GNSS antenna detected"
+        if [ $ignoreOption == "1" ]
+        then
+            sleep 3  
+        else
+            results
+            exit 1      
+        fi
+    fi
+fi   
+
+# checking GNSS fix with external antenna
+fixExtAntFound=0
+k=0
+
+if [ ${gOption} -eq 1 ] && [ $eOption -eq 1 ] && [ $extAnt -eq 1 ]
+then
+    info "Checking GNSS fix (external antenna)"
+    
+    cat ${device} > ${gnssLog} &
+    echo
+    while true
+    do
+        # do we received the proper NMEA sentence ($GNRMC or $GPRMC with valid flag set to 'A'?
+        dat=$(cat ${gnssLog} | grep ".*G[P|N]RMC,[^,]*,A,*")
+        if [ $? -eq 0 ]     # we have a fix, yeah
+        then
+            fixExtAntFound=1
+            echo
+            echo $dat
+            break
+        fi
+        sleep 1
+        echo -n "*"
+        
+        # is a timeout defined?
+        if [ $gCycles -ne 0 ]
+        then
+            k=$((k+1))
+            if [ $k -ge $gCycles ]  # timeout occured, we will abort
+            then
+                echo
+                break
+            fi
+        fi
+    done
+    
+    kill %1 
+    
+    rm ${gnssLog} 
+fi
+
+gExtAntFix=-1 # GNSS fix not tested (external antenna)
+if [ ${gOption} -eq 1 ] && [ $eOption -eq 1 ]
+then
+    if [ $fixExtAntFound -eq 1 ]
+    then
+        gExtAntFix=1
+        gnssFixExtAntFailed=${TEST_OK}
+        info "GNSS fix (external antenna)"
+    else
+        gExtAntFix=0
+        gnssFixExtAntFailed=${TEST_NOK}
+        error "no GNSS fix (external antenna)"
+        if [ $ignoreOption == "1" ]
+        then
+            sleep 3  
+        else
+            results
+            exit 1      
+        fi
+    fi
+fi   
+
+# check shutdown button
+buttonResult=-1 # button not tested
+k=0
+if [ ${bOption} -eq 1 ]
+then
+    buttonFailed=${TEST_NOK}
+    
+    # enable button test mode
+    echo 1 | sudo tee /sys/module/moitessier/parameters/TEST_MODE_SHUTDOWN_BUTTON
+    
+    info "Press shutdown button"
+    info "To abort the test enter the q character"
+    
+    toSearch="moitessier_thread - Shutting down"
+    
+    log1=$(dmesg | grep "${toSearch}")
+    
+    while true
+    do
+        log2=$(dmesg | grep "${toSearch}")
+        
+        #check if strings are not equal
+        if [ "${log1}" != "${log2}" ]
+        then
+            #check if string holds the proper substring
+            if [[ $log2 == *"${toSearch}"* ]]
+            then
+                buttonResult=1
+                buttonFailed=${TEST_OK}
+                info "button tested successfully"
+                break;
+            fi
+        fi
+        echo -n "*"
+        read -t 1 -s -N 1 key
+        if [[ $key == 'q' ]];        # if input == q key
+        then
+            buttonResult=0
+            buttonFailed=${TEST_NOK}
+            error "button failed - tested aborted"
+            if [ $ignoreOption == "1" ]
+            then
+                sleep 3 
+                break 
+            else
+                results
+                exit 1      
+            fi
+        fi
+        
+        if [ $tCycles -ne 0 ]
+        then
+            k=$((k+1))
+            if [ $k -ge $tCycles ]
+            then
+                buttonResult=0
+                buttonFailed=${TEST_NOK}
+                error "button failed - timeout"
+                if [ $ignoreOption == "1" ]
+                then
+                    sleep 3  
+                    break
+                else
+                    results
+                    exit 1      
+                fi
+            fi
+        fi
+    done
+    
+    # disable button test mode
+    echo 0 | sudo tee /sys/module/moitessier/parameters/TEST_MODE_SHUTDOWN_BUTTON
+fi
+
 
 # get the timestamp via Internet
 timestamp=$(wget -qSO- --max-redirect=0 google.com 2>&1 | grep Date: | cut -d' ' -f5-8)
@@ -629,7 +961,7 @@ then
 fi
 
 # any errors?
-if [ "$sensorsFailed" != "${TEST_OK}" -o "$firmwareFailed" != "${TEST_OK}" -o "$eepromFailed" != "${TEST_OK}" -o "$receiverFailed" != "${TEST_OK}" -o "$microcontrollerFailed" != "${TEST_OK}" -o "$gpioFailed" != "${TEST_OK}" -o "$systemFailed" != "${TEST_OK}" ]
+if [ "$sensorsFailed" != "${TEST_OK}" -o "$firmwareFailed" != "${TEST_OK}" -o "$eepromFailed" != "${TEST_OK}" -o "$receiverFailed" != "${TEST_OK}" -o "$microcontrollerFailed" != "${TEST_OK}" -o "$gpioFailed" != "${TEST_OK}" -o "$systemFailed" != "${TEST_OK}" -o "$buttonFailed" == "${TEST_NOK}" -o "$gnssFixFailed" == "${TEST_NOK}" -o "$gnssExtAntFailed" == "${TEST_NOK}" -o "$gnssFixExtAntFailed" == "${TEST_NOK}" ]
 then
     results
     exit 1
@@ -687,9 +1019,15 @@ then
 fi
 
 # create database entry
-dbEntry=${kernelVersion}";"${debianVersion}";"${piVersion}";"${moitessierVersion}";"${timestamp}";"${serial}";"${rng}";"${appVersion}";"${hwVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}";"${gFix}
+dbEntry=${kernelVersion}";"${debianVersion}";"${piVersion}";"${moitessierVersion}";"${timestamp}";"${serial}";"${rng}";"${appVersion}";"${hwVersion}";"${ais1Cnt}";"${ais2Cnt}";"${gnssCnt}";"${cpuTemp}";"${pressureTemp}";"${pressure}";"${mpuTemp}";"${gFix}";"${extAnt}";"${gExtAntFix}";"${gnssVersion}";"${buttonResult}
 # replace tabs with spaces
-dbEntryFormatted=$(echo ${dbEntry//$'\t'/ })
+dbEntryFormatted2=$(echo ${dbEntry//$'\t'/ })
+
+# delete CR und LF
+dbEntryFormatted1=$(echo ${dbEntryFormatted2//$'\r'/})
+dbEntryFormatted=$(echo ${dbEntryFormatted1//$'\n'/})
+
+
 
 if [ ${#dbEntryFormatted} -eq 0 ]
 then
@@ -726,6 +1064,28 @@ else
 fi
 
 results
+
+# rename the temporary log file so we could archiv any production test cycle
+if [ -e "${logDir}/${tmpLogFile}" ]
+then
+    fileName=${logDir}"/production_test_"${serial}"_"${timestamp}
+    mv "${logDir}/${tmpLogFile}" "${fileName}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not rename file \"${logDir}/${tmpLogFile}\""
+        exit 1
+    fi
+    
+    chmod 666 "${fileName}"
+    if [ $? -ne 0 ]
+    then
+        error "Could not change access mode of log file \"${fileName}\""
+        exit 1
+    fi
+else
+    error "\"${logDir}/${tmpLogFile}\" does not exist"
+    exit 1
+fi    
 
 if [ ${wOption} -eq 1 ]
 then
