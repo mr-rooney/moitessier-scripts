@@ -25,8 +25,9 @@ machine=$(uname -m)
 driverPath=/home/pi/moitessier/modules/moitessier_${kernelRelease}.ko
 
 # Shutdown script
-shutdownScript=/home/pi/moitessier/scripts/system_shutdown
-pidShutdownScript=0
+#shutdownScript=/home/pi/moitessier/scripts/system_shutdown
+#pidShutdownScript=0
+shutdownService=/etc/systemd/system/moitessier.shutdown.service
 
 # The device file used for the TTY interface
 ttyDev=/dev/moitessier.tty
@@ -101,18 +102,22 @@ start() {
         echo "moitessier: Setting access mode for $ttyDev." > /dev/kmsg
     fi
     
-    ${shutdownScript} &
-    pidShutdownScript=$!
-    echo "moitessier: PID shutdown=${pidShutdownScript}" > /dev/kmsg    
+    #${shutdownScript} &
+    #pidShutdownScript=$!
+    sudo systemctl start ${shutdownService}
+    pidShutdownScript=$(pgrep system_shutdown)
+    echo "moitessier: PID shutdown=${pidShutdownScript}" > /dev/kmsg   
 }
 stop() {
     echo "Unloading $driverPath" > /dev/kmsg
-    if [ $pidShutdownScript -ne 0 ]
-    then
-        kill $pidShutdownScript
-        pidShutdownScript=0
-    fi
-    rmmod moitessier
+    #if [ $pidShutdownScript -ne 0 ]
+    #then
+    #    kill $pidShutdownScript
+    #    pidShutdownScript=0
+    #fi
+    sudo systemctl stop ${shutdownService}
+    
+    sudo rmmod moitessier
     if [ $? -ne 0 ]
     then
         echo "moitessier: Unloading kernel module failed." > /dev/kmsg
