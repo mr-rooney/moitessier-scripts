@@ -12,6 +12,18 @@ FORMAT_YELLOW="\e[1;93m"
 FORMAT_GREEN="\e[1;32m"
 FORMAT_DEFAULT="\e[0m"
 
+
+shutdownFlag=/sys/module/moitessier/parameters/DO_SHUTDOWN
+
+# DO_SHUTDOWN
+#       0...do nothing
+#       1...shutdown the system
+#       2...reboot system
+
+# DO_SHUTDOWN will be set to 1, if pressing the push button of the Moitessier HAT. You might also want
+# to directly set the value via terminal (e.g. to set to 2 for testing purpose).
+# target> echo 2 | sudo tee /sys/module/moitessier/parameters/DO_SHUTDOWN
+
 info()
 {
     echo
@@ -25,12 +37,20 @@ echo "moitessier: started $0" > /dev/kmsg
 
 while true
 do
-    req=$(cat "/sys/module/moitessier/parameters/DO_SHUTDOWN")
-    if [ $req -eq 1 ]
+    if [ -e "${shutdownFlag}" ]
     then
-        info "Shutting down system"
-        echo "moitessier: shutting down" > /dev/kmsg
-        sudo shutdown now
+        req=$(cat "${shutdownFlag}")
+        if [ "$req" = "1" ]
+        then
+            info "Shutting down system"
+            echo "moitessier: shutting down" > /dev/kmsg
+            sudo shutdown now
+        elif [ "$req" = "2" ]
+        then
+            info "Rebooting system"
+            echo "moitessier: rebooting" > /dev/kmsg
+            sudo reboot
+        fi
     fi
     sleep 2
 done

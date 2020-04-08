@@ -27,13 +27,17 @@ driverPath=/home/pi/moitessier/modules/moitessier_${kernelRelease}.ko
 # Shutdown script
 #shutdownScript=/home/pi/moitessier/scripts/system_shutdown
 #pidShutdownScript=0
-shutdownService=/etc/systemd/system/moitessier.shutdown.service
+#shutdownService=/etc/systemd/system/moitessier.shutdown.service
+shutdownService=moitessier.shutdown.service     # do not use full path, see https://stackoverflow.com/questions/47856974/systemd-service-start-fails-no-service-mount-unit
 
 # The device file used for the TTY interface
 ttyDev=/dev/moitessier.tty
 
 # Path to device tree related information
-hatDevTree=/proc/device-tree/soc/spi@7e204000/moitessier@0/name
+hatName=$(tr -d '\0' </proc/device-tree/soc/spi@7e204000/moitessier@0/name)
+
+# Path to script killing any running process accessing the moitessier driver
+killScript=/home/pi/moitessier/scripts/kill
 
 # Path to the boot configuration
 bootConfig=/boot/config.txt
@@ -46,7 +50,6 @@ bootConfigI2COff='i2c_arm=off'
 bootConfigOk=0
 
 start() {
-    hatName=$(cat ${hatDevTree})
     if [ $? -ne 0 ]
     then
         echo "moitessier: HAT not available" > /dev/kmsg
@@ -104,7 +107,14 @@ start() {
     
     #${shutdownScript} &
     #pidShutdownScript=$!
-    sudo systemctl start ${shutdownService}
+    running=$(systemctl list-units --type=service | grep moitessier.shutdown.service)
+    if [ $? -ne 0 ]
+    then
+        echo "moitessier: moitessier.shutdown.service not running. Starting service now." > /dev/kmsg
+        sudo systemctl start ${shutdownService}    
+    else
+        echo "moitessier: moitessier.shutdown.service already running." > /dev/kmsg
+    fi
     pidShutdownScript=$(pgrep system_shutdown)
     echo "moitessier: PID shutdown=${pidShutdownScript}" > /dev/kmsg   
 }
@@ -116,6 +126,8 @@ stop() {
     #    pidShutdownScript=0
     #fi
     sudo systemctl stop ${shutdownService}
+    
+    sudo ${killScript}
     
     sudo rmmod moitessier
     if [ $? -ne 0 ]
