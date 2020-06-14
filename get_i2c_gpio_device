@@ -1,0 +1,45 @@
+#!/bin/bash
+
+tmpFile=i2c_dev.tmp
+
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_BLUE="\e[1;36m"
+FORMAT_DEFAULT="\e[0m"
+
+info()
+{
+    echo -e ${FORMAT_YELLOW}
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo -e ${FORMAT_DEFAULT}
+}
+
+info "Determining I2C GPIO device"
+
+devices=$(i2cdetect -l | grep "i2c@")
+dev=$(echo $devices | cut -d ' ' -f 1)
+
+if [ ! -e $tmpFile ]
+then
+    touch $tmpFile
+    if [ $? -ne 0 ]
+    then
+        error "Could not create file \"${tmpFile}\" to write I2C GPIO device"
+        exit 1
+    fi   
+fi
+
+echo $dev > $tmpFile
+if [ $? -ne 0 ]
+then
+    error "Could not write I2C GPIO device to file \"${tmpFile}\""
+    exit 1
+fi
+
+info "I2C GPIO device: ${dev}"
+
+exit $?
+

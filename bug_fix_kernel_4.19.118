@@ -1,0 +1,110 @@
+#!/bin/bash
+
+bootConfigPath=/boot
+bootConfigFile=config.txt
+hashtag='#'
+dtboFileSource=i2c-gpio_bug_fix_4.19.118.dtbo
+dtboFileTarget=i2c-gpio.dtbo
+bootConfigI2Cgpio='dtoverlay=i2c-gpio,i2c_gpio_sda=2,i2c_gpio_scl=3,bus=3'
+bootConfigI2CgpioOverlay='dtoverlay=i2c-gpio'
+
+# https://misc.flogisoft.com/bash/tip_colors_and_formatting
+FORMAT_RED="\e[1;31m"
+FORMAT_YELLOW="\e[1;93m"
+FORMAT_GREEN="\e[1;32m"
+FORMAT_DEFAULT="\e[0m"
+
+error()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_RED}ERROR occured!!${FORMAT_DEFAULT}"
+    echo
+    echo -e "${FORMAT_RED}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+warning()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_YELLOW}WARNING!!${FORMAT_DEFAULT}"
+    echo
+    echo -e "${FORMAT_YELLOW}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+info()
+{
+    echo
+    echo "******************************************************************************************"
+    echo $1
+    echo "******************************************************************************************"
+    echo
+}
+
+pwd="`dirname \"$0\"`"
+
+# check if we have the proper rights
+if [ "$EUID" -ne 0 ]
+then 
+    error "You must run this script with root privileges."
+    exit
+fi
+
+date=$(date "+%Y-%m-%d_%H%M%S")
+info "Saving boot configuration to ${bootConfigPath}/${bootConfigFile}_${date}"
+sudo cp ${bootConfigPath}/${bootConfigFile} ${bootConfigPath}/${bootConfigFile}_${date}
+if [ $? -ne 0 ]
+then
+    error "Saving boot configuration to ${bootConfigPath}/${bootConfigFile}_${date} failed"
+    exit 1
+fi
+
+warning "Modifying boot configuration"
+sed -i "/${hashtag}${bootConfigI2CgpioOverlay}/d" ${bootConfigPath}/${bootConfigFile}
+sed -i "/${bootConfigI2CgpioOverlay}/d" ${bootConfigPath}/${bootConfigFile}
+
+sudo apt-get update
+if [ $? -ne 0 ]
+then
+    error "apt-get update failed"
+    exit 1
+fi
+
+sudo apt-get upgrade
+if [ $? -ne 0 ]
+then
+    error "apt-get upgrade failed"
+    exit 1
+fi
+
+sudo apt-get dist-upgrade
+if [ $? -ne 0 ]
+then
+    error "apt-get upgrade failed"
+    exit 1
+fi
+
+warning "Overwriting overlays"
+sudo cp ${pwd}/${dtboFileSource} ${bootConfigPath}/overlays/${dtboFileTarget}
+if [ $? -ne 0 ]
+then
+    error "Copying file ${pwd}/${dtboFileSource} to ${bootConfigPath}/overlays/${dtboFileTarget} failed"
+    exit 1
+fi
+
+warning "Enabling ${bootConfigI2CgpioOverlay} in ${bootConfigPath}/${bootConfigFile}"
+echo ${bootConfigI2Cgpio} >> ${bootConfigPath}/${bootConfigFile}
+if [ $? -ne 0 ]
+then
+    error "Copying file ${pwd}/${dtboFileSource} to ${bootConfigPath}/overlays/${dtboFileTarget} failed"
+    exit 1
+fi
+
+error "You must reboot your system!!!"
+
+#sudo reboot
+exit 0

@@ -16,7 +16,8 @@
 #   sudo moitessier/scripts/production_test -k -s -g 0 2>&1 | tee ~/Desktop/production_test.log
 
 flasher=../flasher/fw_update_moitessier
-
+GET_I2C_GPIO_DEVICE_SCRIPT=get_i2c_gpio_device                  # name of the script to determine the I2C GPIO device used for firmware updates
+tmpFileI2C=i2c_dev.tmp
 eepromFlasher=../device_tree/eeprom_update_moitessier           # the path to the EEPROM update script (relative path)
 sensorScript=../app/sensors/check_functionality                 # the path to the script used to check the sensor functionality (relative path)
 sensorFile=../app/sensors/sensValues.txt                        # The file where the sensor readouts should be stored
@@ -44,8 +45,6 @@ pressureRange=200                                               # actual range i
 dtparamI2CValid=0
 dtoverlayMoitessierValid=0
 dtoverlayI2CgpioValid=0
-
-bus=/dev/i2c-${i2cDeviceNr}    
 
 pwd="`dirname \"$0\"`"
 
@@ -199,7 +198,7 @@ results()
     then
         format=${FORMAT_YELLOW}
     fi
-    echo -e "RECEIVER                           ${format}${receiverFailed}${FORMAT_DEFAULT}"
+    echo -e "RECEIVER                           ${format}${receiverFailed} (A: ${ais1Cnt}, B: ${ais2Cnt})${FORMAT_DEFAULT}"
     
     format=${FORMAT_RED}
     if [ "${gnssFixFailed}" == "${TEST_OK}" ]
@@ -439,6 +438,22 @@ then
     sleep 4
     reboot
 fi
+
+"${pwd}/${GET_I2C_GPIO_DEVICE_SCRIPT}"
+if [ $? -ne 0 ]
+then
+    error "Could not get I2C GPIO device"
+    exit 1
+fi
+
+read i2cDeviceNrAssigned < $tmpFileI2C
+if [ ${#i2cDeviceNrAssigned} -le 4 ]
+then 
+    error "No valid I2C GPIO device found"
+    exit 1
+fi
+
+bus=/dev/${i2cDeviceNrAssigned}  
 
 # check the sensors
 "${pwd}/${sensorScript}" -i ${bus} -c ${sensorIterations} --mpu --press --cpu -s -t ${temperature} -r ${temperatureRange} -p ${pressure} -n ${pressureRange}

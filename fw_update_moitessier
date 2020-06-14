@@ -21,6 +21,8 @@ fwPath=fw                                                       # the path to st
 fwFileRemote=$fwPath/application.binary                         # path + file name of the firmware, if loaded from the remote repository
 blackList=fw_update_moitessier_black_list.txt                   # file that holds the processes/programms that need to be killed before the update can be executed (relative path)
 retries=5                                                       # number of retries before giving up the firmware update
+GET_I2C_GPIO_DEVICE_SCRIPT=get_i2c_gpio_device                  # name of the script to determine the I2C GPIO device used for firmware updates
+tmpFileI2C=i2c_dev.tmp                                          # file where I2C device is written to
 
 # calling path
 dir="`dirname \"$0\"`"
@@ -90,7 +92,8 @@ info()
     echo
 }
 
-pwd=$(pwd)
+#pwd=$(pwd)
+pwd="`dirname \"$0\"`"
 
 rOption=0
 sOption=0
@@ -161,6 +164,20 @@ then
     error "${configFile} has been changed. System will reboot. You need to call this script afterwards again."
     sleep 10
     reboot
+fi
+
+"${pwd}/${GET_I2C_GPIO_DEVICE_SCRIPT}"
+if [ $? -ne 0 ]
+then
+    error "Could not get I2C GPIO device"
+    exit 1
+fi
+
+read i2cDeviceNrAssigned < $tmpFileI2C
+if [ ${#i2cDeviceNrAssigned} -le 4 ]
+then 
+    error "No valid I2C GPIO device found"
+    exit 1
 fi
 
 if [ $rOption -eq 1 ]
@@ -263,7 +280,7 @@ do
         info "Flashing firmware."
         # GPIO18...nRESET pin
         # GPIO17...BOOT0 pin
-        "${dir}/$flasher" -R -i 18,,,17,,,-18,,,,,18,,:,,-17,,,18,,,-18,,,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/i2c-${i2cDeviceNr}
+        "${dir}/$flasher" -R -i 18,,,17,,,-18,,,,,18,,:,,-17,,,18,,,-18,,,18 -w $fwFile -v -g 0x00 -a 0x41 /dev/${i2cDeviceNrAssigned}
         if [ $? -ne 0 ]
         then
             error "Flashing firmware failed."
