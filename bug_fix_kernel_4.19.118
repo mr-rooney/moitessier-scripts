@@ -40,18 +40,41 @@ info()
 {
     echo
     echo "******************************************************************************************"
-    echo $1
+    echo -e "${FORMAT_GREEN}${1}${FORMAT_DEFAULT}"
+    echo "******************************************************************************************"
+    echo
+}
+
+result()
+{
+    echo
+    echo "******************************************************************************************"
+    echo -e "${FORMAT_RED}${1}${FORMAT_DEFAULT}"
     echo "******************************************************************************************"
     echo
 }
 
 pwd="`dirname \"$0\"`"
+file=$1  
 
 # check if we have the proper rights
 if [ "$EUID" -ne 0 ]
 then 
     error "You must run this script with root privileges."
     exit
+fi
+
+if [ -f "${file}" ]
+then
+    fileName="$(basename -- ${file})"
+    if [ ${fileName} != ${dtboFileSource} ] 
+    then
+        error "DTBO file not supported"
+        exit 1
+    fi
+else
+    error "No DTBO file specified"
+    exit 1
 fi
 
 date=$(date "+%Y-%m-%d_%H%M%S")
@@ -63,7 +86,7 @@ then
     exit 1
 fi
 
-warning "Modifying boot configuration"
+info "Modifying boot configuration"
 sed -i "/${hashtag}${bootConfigI2CgpioOverlay}/d" ${bootConfigPath}/${bootConfigFile}
 sed -i "/${bootConfigI2CgpioOverlay}/d" ${bootConfigPath}/${bootConfigFile}
 
@@ -88,23 +111,26 @@ then
     exit 1
 fi
 
-warning "Overwriting overlays"
-sudo cp ${pwd}/${dtboFileSource} ${bootConfigPath}/overlays/${dtboFileTarget}
+info "Overwriting overlays"
+sudo cp ${file} ${bootConfigPath}/overlays/${dtboFileTarget}
 if [ $? -ne 0 ]
 then
-    error "Copying file ${pwd}/${dtboFileSource} to ${bootConfigPath}/overlays/${dtboFileTarget} failed"
+    error "Copying file ${file} to ${bootConfigPath}/overlays/${dtboFileTarget} failed"
     exit 1
 fi
 
-warning "Enabling ${bootConfigI2CgpioOverlay} in ${bootConfigPath}/${bootConfigFile}"
+info "Enabling ${bootConfigI2CgpioOverlay} in ${bootConfigPath}/${bootConfigFile}"
 echo ${bootConfigI2Cgpio} >> ${bootConfigPath}/${bootConfigFile}
 if [ $? -ne 0 ]
 then
-    error "Copying file ${pwd}/${dtboFileSource} to ${bootConfigPath}/overlays/${dtboFileTarget} failed"
+    error "Writing boot configuration failed"
     exit 1
 fi
 
-error "You must reboot your system!!!"
-
+result "##################################
+#                                #
+# You must reboot your system!!! #
+#                                #
+##################################"
 #sudo reboot
 exit 0
