@@ -94,21 +94,21 @@ sudo apt-get update
 if [ $? -ne 0 ]
 then
     error "apt-get update failed"
-    exit 1
+    #exit 1
 fi
 
 sudo apt-get upgrade
 if [ $? -ne 0 ]
 then
     error "apt-get upgrade failed"
-    exit 1
+    #exit 1
 fi
 
 sudo apt-get dist-upgrade
 if [ $? -ne 0 ]
 then
     error "apt-get upgrade failed"
-    exit 1
+    #exit 1
 fi
 
 info "Overwriting overlays"
